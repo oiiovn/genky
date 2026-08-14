@@ -81,6 +81,15 @@ class AttendancePermission
         ], true);
     }
 
+    public function assertOwnerCanDeleteSynthetic(): void
+    {
+        if ($this->role() !== OrganizationUser::ROLE_OWNER) {
+            throw new AuthorizationException(
+                'Chỉ chủ quán được xoá dòng chấm công tự sinh.'
+            );
+        }
+    }
+
     /**
      * @return Collection<int, int>
      */

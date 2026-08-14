@@ -275,3 +275,16 @@ export async function deleteAttendance(id: number): Promise<void> {
   });
   if (!res.ok) throw new Error(await parseError(res));
 }
+
+export async function deleteSyntheticAttendance(payload: {
+  employee_id: number;
+  branch_id: number;
+  work_date: string;
+}): Promise<void> {
+  const res = await fetch(`${apiUrl()}/attendances/synthetic`, {
+    method: "DELETE",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}

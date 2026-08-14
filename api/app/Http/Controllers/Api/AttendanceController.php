@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Attendance\BulkAttendanceRequest;
 use App\Http\Requests\Attendance\CheckInRequest;
 use App\Http\Requests\Attendance\CheckOutRequest;
+use App\Http\Requests\Attendance\DeleteSyntheticAttendanceRequest;
 use App\Http\Requests\Attendance\UpdateAttendanceRequest;
 use App\Services\Attendance\AttendanceService;
 use Illuminate\Http\JsonResponse;
@@ -112,6 +113,17 @@ class AttendanceController extends Controller
         $this->attendance->delete($log);
 
         return response()->json(['message' => 'Đã xoá bản ghi chấm công.']);
+    }
+
+    public function destroySynthetic(DeleteSyntheticAttendanceRequest $request): JsonResponse
+    {
+        $this->attendance->deleteSynthetic(
+            (int) $request->validated('employee_id'),
+            (string) $request->validated('work_date'),
+            (int) $request->validated('branch_id')
+        );
+
+        return response()->json(['message' => 'Đã xoá dòng chấm công tự sinh.']);
     }
 
     public function bulk(BulkAttendanceRequest $request): JsonResponse

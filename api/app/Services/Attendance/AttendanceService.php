@@ -3,6 +3,7 @@
 namespace App\Services\Attendance;
 
 use App\Models\AttendanceAdjustment;
+use App\Models\AttendanceExclusion;
 use App\Models\AttendanceLog;
 use App\Models\Branch;
 use App\Models\Employee;
@@ -347,7 +348,37 @@ class AttendanceService
     {
         AttendancePermission::for()->assertCanDelete();
         AttendancePermission::for()->assertCanAccessBranch((int) $log->branch_id);
+        $this->excludeRow(
+            (int) $log->employee_id,
+            $log->work_date?->toDateString() ?? now()->toDateString(),
+            (int) $log->branch_id
+        );
         $log->delete();
+    }
+
+    public function deleteSynthetic(int $employeeId, string $date, int $branchId): void
+    {
+        $permission = AttendancePermission::for();
+        $permission->assertOwnerCanDeleteSynthetic();
+        $permission->assertCanAccessBranch($branchId);
+
+        Employee::query()->findOrFail($employeeId);
+        Branch::query()->findOrFail($branchId);
+
+        $this->excludeRow($employeeId, $date, $branchId);
+    }
+
+    protected function excludeRow(int $employeeId, string $date, int $branchId): void
+    {
+        AttendanceExclusion::query()->updateOrCreate(
+            [
+                'organization_id' => TenantContext::id(),
+                'employee_id' => $employeeId,
+                'work_date' => $date,
+                'branch_id' => $branchId,
+            ],
+            ['deleted_by' => auth()->id()]
+        );
     }
 
     public function bulk(array $items): array
@@ -444,6 +475,14 @@ class AttendanceService
         $employeeQuery = Employee::query()
             ->with(['position', 'branches'])
             ->where('status', Employee::STATUS_ACTIVE)
+            ->where(function ($query) use ($date) {
+                $query->whereNull('joined_at')
+                    ->orWhereDate('joined_at', '<=', $date);
+            })
+            ->where(function ($query) use ($date) {
+                $query->whereNull('resigned_at')
+                    ->orWhereDate('resigned_at', '>=', $date);
+            })
             ->orderBy('full_name');
 
         if ($permission->isEmployeeOnly()) {
@@ -476,7 +515,7 @@ class AttendanceService
             ->get()
             ->groupBy('employee_id');
 
-        return $employees->map(function (Employee $employee) use ($logs, $assignments, $date, $branchId) {
+        $rows = $employees->map(function (Employee $employee) use ($logs, $assignments, $date, $branchId) {
             /** @var AttendanceLog|null $log */
             $log = $logs->get($employee->id);
             $assignment = ($assignments->get($employee->id) ?? collect())->first();
@@ -484,6 +523,21 @@ class AttendanceService
 
             return $this->buildRowPayload($employee, $log, $shift, $date, $branchId);
         });
+
+        $excluded = AttendanceExclusion::query()
+            ->whereDate('work_date', $date)
+            ->get()
+            ->mapWithKeys(fn (AttendanceExclusion $row) => [
+                $row->employee_id.':'.$row->branch_id => true,
+            ]);
+
+        return $rows->reject(function (array $row) use ($excluded) {
+            if (! empty($row['id'])) {
+                return false;
+            }
+
+            return $excluded->has($row['employee_id'].':'.$row['branch_id']);
+        })->values();
     }
 
     protected function buildRowPayload(

@@ -154,6 +154,7 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
         Route::post('attendances/check-in', [AttendanceController::class, 'checkIn']);
         Route::post('attendances/check-out', [AttendanceController::class, 'checkOut']);
         Route::post('attendances/bulk', [AttendanceController::class, 'bulk']);
+        Route::delete('attendances/synthetic', [AttendanceController::class, 'destroySynthetic']);
 
         Route::get('attendances/qr/settings', [AttendanceQrController::class, 'settings']);
         Route::put('attendances/qr/settings', [AttendanceQrController::class, 'updateSettings']);

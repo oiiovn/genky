@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import {
   deleteAttendance,
+  deleteSyntheticAttendance,
   exportAttendances,
   fetchAttendanceDashboard,
   fetchAttendances,
@@ -315,8 +316,8 @@ export default function AttendancePage() {
                 onView={(row) => setRecordModal({ mode: "view", row })}
                 onEdit={(row) => setRecordModal({ mode: "edit", row })}
                 onDelete={(row) => {
-                  if (!row.id) {
-                    setError("Chưa có bản ghi để xoá.");
+                  if (!row.id && !row.branch_id) {
+                    setError("Nhân viên chưa được gắn chi nhánh để xoá dòng này.");
                     return;
                   }
                   setPendingDelete(row);
@@ -379,9 +380,15 @@ export default function AttendancePage() {
             if (!deleting) setPendingDelete(null);
           }}
           onConfirm={() => {
-            if (!pendingDelete.id) return;
             setDeleting(true);
-            void deleteAttendance(pendingDelete.id)
+            const deletingRequest = pendingDelete.id
+              ? deleteAttendance(pendingDelete.id)
+              : deleteSyntheticAttendance({
+                  employee_id: pendingDelete.employee_id,
+                  branch_id: pendingDelete.branch_id as number,
+                  work_date: pendingDelete.work_date,
+                });
+            void deletingRequest
               .then(() => {
                 setPendingDelete(null);
                 showToast("Đã xoá bản ghi chấm công.");

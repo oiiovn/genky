@@ -72,8 +72,18 @@ class AttendanceModuleTest extends TestCase
             ->getJson('/api/attendances?date='.now()->toDateString())
             ->assertOk()
             ->assertJsonPath('meta.total', 1)
-            ->assertJsonPath('data.0.employee_id', $employee['id'])
+            ->assertJsonPath('data.0.id', null)
             ->assertJsonPath('data.0.ui_status', 'not_checked_in');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->deleteJson('/api/attendances/synthetic', [
+                'employee_id' => $employee['id'],
+                'branch_id' => $ctx['branch_id'],
+                'work_date' => now()->toDateString(),
+            ])
+            ->assertOk();
 
         $from = now()->startOfWeek()->toDateString();
         $to = now()->toDateString();
@@ -81,8 +91,8 @@ class AttendanceModuleTest extends TestCase
         $this->withToken($ctx['token'])
             ->getJson('/api/attendances?from='.$from.'&to='.$to)
             ->assertOk()
-            ->assertJsonPath('data.0.employee_id', $employee['id'])
-            ->assertJsonPath('data.0.work_date', $to);
+            ->assertJsonPath('meta.total', 0)
+            ->assertJsonCount(0, 'data');
     }
 
     public function test_check_in_and_check_out_flow(): void
@@ -134,6 +144,15 @@ class AttendanceModuleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.checked_in', 1)
             ->assertJsonPath('data.working', 0);
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $log['id'])
+            ->assertJsonPath('data.0.ui_status', 'checked_out');
 
         $this->app['auth']->forgetGuards();
 

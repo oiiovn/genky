@@ -43,11 +43,10 @@ export function AttendanceRowActions({
       {onDelete ? (
         <button
           type="button"
-          disabled={!hasRecord}
           onClick={() => onDelete(row)}
-          className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
           aria-label="Xoá"
-          title={hasRecord ? "Xoá" : "Chưa có bản ghi"}
+          title={hasRecord ? "Xoá bản ghi" : "Xoá dòng tự sinh"}
         >
           <Trash2 className="h-4 w-4" />
         </button>
