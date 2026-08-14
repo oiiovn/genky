@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type LeaveStatus = "pending" | "approved" | "rejected" | "cancelled";
 export type LeaveType = "annual" | "unpaid" | "sick" | "personal";
@@ -91,7 +90,7 @@ export async function fetchLeaves(
   if (filters.type) q.set("type", filters.type);
   if (filters.search) q.set("search", filters.search);
   const suffix = q.toString() ? `?${q}` : "";
-  const res = await fetch(`${API_URL}/leaves${suffix}`, {
+  const res = await fetch(`${apiUrl()}/leaves${suffix}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -115,7 +114,7 @@ export async function createLeave(payload: {
   reason: string;
   employee_id?: number;
 }): Promise<LeaveRequest> {
-  const res = await fetch(`${API_URL}/leaves`, {
+  const res = await fetch(`${apiUrl()}/leaves`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -126,7 +125,7 @@ export async function createLeave(payload: {
 }
 
 export async function cancelLeave(id: number): Promise<LeaveRequest> {
-  const res = await fetch(`${API_URL}/leaves/${id}/cancel`, {
+  const res = await fetch(`${apiUrl()}/leaves/${id}/cancel`, {
     method: "POST",
     headers: authHeaders(),
     body: "{}",
@@ -141,7 +140,7 @@ export async function reviewLeave(
   status: "approved" | "rejected",
   note?: string,
 ): Promise<LeaveRequest> {
-  const res = await fetch(`${API_URL}/leaves/${id}/review`, {
+  const res = await fetch(`${apiUrl()}/leaves/${id}/review`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ status, note }),

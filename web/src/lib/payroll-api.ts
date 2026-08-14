@@ -1,8 +1,7 @@
 import { getAccessToken } from "@/lib/api";
 import type { Employee } from "@/lib/employees-api";
 import { monthBounds } from "@/lib/timesheet-api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type PayrollStatus = "paid" | "pending" | "draft" | "partial";
 
@@ -129,7 +128,7 @@ export function averageNet(rows: PayrollRow[]): number {
 export async function fetchPayrolls(
   filters: PayrollFilters,
 ): Promise<PayrollListResponse> {
-  const res = await fetch(`${API_URL}/payrolls?${toQuery(filters)}`, {
+  const res = await fetch(`${apiUrl()}/payrolls?${toQuery(filters)}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -142,7 +141,7 @@ export async function generatePayroll(payload: {
   month: number;
   branch_id?: number | null;
 }): Promise<{ created: number; updated: number; total_employees: number }> {
-  const res = await fetch(`${API_URL}/payrolls/generate`, {
+  const res = await fetch(`${apiUrl()}/payrolls/generate`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -158,7 +157,7 @@ export async function markPayrollPaid(payload: {
   employee_ids: number[];
   status?: PayrollStatus;
 }): Promise<{ count: number; status: PayrollStatus }> {
-  const res = await fetch(`${API_URL}/payrolls/mark-paid`, {
+  const res = await fetch(`${apiUrl()}/payrolls/mark-paid`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -174,7 +173,7 @@ export async function exportPayrolls(
   const q = toQuery({ ...filters, page: 1, per_page: 1 });
   q.delete("page");
   q.delete("per_page");
-  const res = await fetch(`${API_URL}/payrolls/export?${q}`, {
+  const res = await fetch(`${apiUrl()}/payrolls/export?${q}`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -213,7 +212,7 @@ export async function payPayroll(payload: {
     status: PayrollStatus;
   };
 }> {
-  const res = await fetch(`${API_URL}/payrolls/pay`, {
+  const res = await fetch(`${apiUrl()}/payrolls/pay`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -266,7 +265,7 @@ export async function fetchPayrollPayments(params: {
   if (params.search) q.set("search", params.search);
   if (params.page) q.set("page", String(params.page));
   q.set("per_page", String(params.per_page ?? 20));
-  const res = await fetch(`${API_URL}/payrolls/payments?${q}`, {
+  const res = await fetch(`${apiUrl()}/payrolls/payments?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -333,7 +332,7 @@ export async function fetchPayrollHistory(params: {
   if (params.search) q.set("search", params.search);
   if (params.page) q.set("page", String(params.page));
   q.set("per_page", String(params.per_page ?? 12));
-  const res = await fetch(`${API_URL}/payrolls/history?${q}`, {
+  const res = await fetch(`${apiUrl()}/payrolls/history?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -352,7 +351,7 @@ export async function fetchPayrollHistoryDetail(
   const q = new URLSearchParams();
   if (branchId) q.set("branch_id", String(branchId));
   const res = await fetch(
-    `${API_URL}/payrolls/history/${year}/${month}?${q}`,
+    `${apiUrl()}/payrolls/history/${year}/${month}?${q}`,
     {
       headers: authHeaders(false),
       cache: "no-store",

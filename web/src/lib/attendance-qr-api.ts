@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type QrSettings = {
   id: number;
@@ -77,7 +76,7 @@ async function parseError(res: Response): Promise<string> {
 export async function fetchQrSettings(branchId?: number): Promise<QrSettings> {
   const q = new URLSearchParams();
   if (branchId) q.set("branch_id", String(branchId));
-  const res = await fetch(`${API_URL}/attendances/qr/settings?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/qr/settings?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -95,7 +94,7 @@ export async function updateQrSettings(payload: {
   allow_check_in: boolean;
   allow_check_out: boolean;
 }): Promise<QrSettings> {
-  const res = await fetch(`${API_URL}/attendances/qr/settings`, {
+  const res = await fetch(`${apiUrl()}/attendances/qr/settings`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -108,7 +107,7 @@ export async function updateQrSettings(payload: {
 export async function fetchQrCurrent(branchId?: number): Promise<QrCurrent> {
   const q = new URLSearchParams();
   if (branchId) q.set("branch_id", String(branchId));
-  const res = await fetch(`${API_URL}/attendances/qr/current?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/qr/current?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -124,7 +123,7 @@ export async function fetchQrRecent(
   const q = new URLSearchParams();
   if (branchId) q.set("branch_id", String(branchId));
   q.set("limit", String(limit));
-  const res = await fetch(`${API_URL}/attendances/qr/recent?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/qr/recent?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -185,7 +184,7 @@ export async function scanAttendanceQr(payload: {
   longitude?: number;
   device?: string;
 }): Promise<QrScanResult> {
-  const res = await fetch(`${API_URL}/attendances/qr/scan`, {
+  const res = await fetch(`${apiUrl()}/attendances/qr/scan`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ action: "auto", ...payload }),

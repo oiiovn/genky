@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type PlanTone = "blue" | "purple" | "orange" | "green";
 
@@ -53,7 +52,7 @@ async function parseError(res: Response): Promise<string> {
 }
 
 export async function fetchPlansCatalog(): Promise<PlansCatalog> {
-  const res = await fetch(`${API_URL}/plans`, {
+  const res = await fetch(`${apiUrl()}/plans`, {
     headers: authHeaders(false),
     cache: "no-store",
   });

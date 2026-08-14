@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type ShiftStatus = "active" | "inactive";
 
@@ -110,7 +109,7 @@ export async function fetchShifts(
   if (filters.page) params.set("page", String(filters.page));
   params.set("per_page", String(filters.per_page ?? 10));
 
-  const res = await fetch(`${API_URL}/shifts?${params.toString()}`, {
+  const res = await fetch(`${apiUrl()}/shifts?${params.toString()}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -123,7 +122,7 @@ export async function fetchShiftSummary(
 ): Promise<ShiftSummary> {
   const params = new URLSearchParams();
   if (branchId) params.set("branch_id", String(branchId));
-  const res = await fetch(`${API_URL}/shifts/summary?${params.toString()}`, {
+  const res = await fetch(`${apiUrl()}/shifts/summary?${params.toString()}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -133,7 +132,7 @@ export async function fetchShiftSummary(
 }
 
 export async function createShift(payload: ShiftPayload): Promise<Shift> {
-  const res = await fetch(`${API_URL}/shifts`, {
+  const res = await fetch(`${apiUrl()}/shifts`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -147,7 +146,7 @@ export async function updateShift(
   id: number,
   payload: Partial<ShiftPayload>,
 ): Promise<Shift> {
-  const res = await fetch(`${API_URL}/shifts/${id}`, {
+  const res = await fetch(`${apiUrl()}/shifts/${id}`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -158,7 +157,7 @@ export async function updateShift(
 }
 
 export async function deleteShift(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/shifts/${id}`, {
+  const res = await fetch(`${apiUrl()}/shifts/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });
@@ -174,7 +173,7 @@ export async function importShifts(file: File, branchId?: number): Promise<{
   if (branchId) form.append("branch_id", String(branchId));
 
   const access = getAccessToken();
-  const res = await fetch(`${API_URL}/shifts/import`, {
+  const res = await fetch(`${apiUrl()}/shifts/import`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -189,7 +188,7 @@ export async function importShifts(file: File, branchId?: number): Promise<{
 export async function exportShifts(branchId?: number): Promise<void> {
   const params = new URLSearchParams();
   if (branchId) params.set("branch_id", String(branchId));
-  const res = await fetch(`${API_URL}/shifts/export?${params.toString()}`, {
+  const res = await fetch(`${apiUrl()}/shifts/export?${params.toString()}`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));

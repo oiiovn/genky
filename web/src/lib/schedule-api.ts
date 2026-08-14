@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type ScheduleAssignment = {
   id: number;
@@ -77,7 +76,7 @@ export async function fetchScheduleAssignments(
   if (filters.date_to) params.set("date_to", filters.date_to);
   if (filters.status) params.set("status", filters.status);
 
-  const res = await fetch(`${API_URL}/shift-assignments?${params.toString()}`, {
+  const res = await fetch(`${apiUrl()}/shift-assignments?${params.toString()}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -89,7 +88,7 @@ export async function fetchScheduleAssignments(
 export async function createScheduleAssignment(
   payload: AssignShiftPayload,
 ): Promise<ScheduleAssignment> {
-  const res = await fetch(`${API_URL}/shift-assignments`, {
+  const res = await fetch(`${apiUrl()}/shift-assignments`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -100,7 +99,7 @@ export async function createScheduleAssignment(
 }
 
 export async function deleteScheduleAssignment(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/shift-assignments/${id}`, {
+  const res = await fetch(`${apiUrl()}/shift-assignments/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { login, register, resolvePostAuthPath, saveTokens } from "@/lib/api";
+import { describeFetchError } from "@/lib/api-base";
 
 export function LoginForm() {
   const router = useRouter();
@@ -67,8 +68,7 @@ export function LoginForm() {
         router.push("/onboarding");
       }
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Đăng nhập thất bại.";
+      const msg = describeFetchError(err);
       const duplicate =
         /email đã được sử dụng|đã được sử dụng/i.test(msg);
       if (tab === "register" && duplicate) {

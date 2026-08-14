@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type AttendanceUiStatus =
   | "checked_out"
@@ -123,7 +122,7 @@ export async function fetchAttendanceDashboard(params: {
   const q = new URLSearchParams();
   if (params.date) q.set("date", params.date);
   if (params.branch_id) q.set("branch_id", String(params.branch_id));
-  const res = await fetch(`${API_URL}/attendances/dashboard?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/dashboard?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -139,7 +138,7 @@ export async function fetchAttendanceShiftsToday(params: {
   const q = new URLSearchParams();
   if (params.date) q.set("date", params.date);
   if (params.branch_id) q.set("branch_id", String(params.branch_id));
-  const res = await fetch(`${API_URL}/attendances/shifts/today?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/shifts/today?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -166,7 +165,7 @@ export async function fetchAttendances(params: {
   if (params.page) q.set("page", String(params.page));
   q.set("per_page", String(params.per_page ?? 10));
 
-  const res = await fetch(`${API_URL}/attendances?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -182,7 +181,7 @@ export async function checkInAttendance(payload: {
   work_date?: string;
   check_in_time?: string;
 }): Promise<AttendanceRow> {
-  const res = await fetch(`${API_URL}/attendances/check-in`, {
+  const res = await fetch(`${apiUrl()}/attendances/check-in`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -199,7 +198,7 @@ export async function checkOutAttendance(payload: {
   check_out_time?: string;
   note?: string;
 }): Promise<AttendanceRow> {
-  const res = await fetch(`${API_URL}/attendances/check-out`, {
+  const res = await fetch(`${apiUrl()}/attendances/check-out`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -216,7 +215,7 @@ export async function exportAttendances(params: {
   const q = new URLSearchParams();
   if (params.date) q.set("date", params.date);
   if (params.branch_id) q.set("branch_id", String(params.branch_id));
-  const res = await fetch(`${API_URL}/attendances/export?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/export?${q}`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -230,7 +229,7 @@ export async function exportAttendances(params: {
 }
 
 export async function fetchAttendance(id: number): Promise<AttendanceRow> {
-  const res = await fetch(`${API_URL}/attendances/${id}`, {
+  const res = await fetch(`${apiUrl()}/attendances/${id}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -251,7 +250,7 @@ export async function updateAttendance(
     reason?: string;
   },
 ): Promise<AttendanceRow> {
-  const res = await fetch(`${API_URL}/attendances/${id}`, {
+  const res = await fetch(`${apiUrl()}/attendances/${id}`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -262,7 +261,7 @@ export async function updateAttendance(
 }
 
 export async function deleteAttendance(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/attendances/${id}`, {
+  const res = await fetch(`${apiUrl()}/attendances/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { clearTokens, getAccessToken, logout as apiLogout, me } from "@/lib/api";
+import { describeFetchError, isNetworkError } from "@/lib/api-base";
 import {
   isStaffAppUser,
   staffSessionFromMe,
@@ -62,7 +63,13 @@ export function StaffShell({ children }: { children: ReactNode }) {
       setSession(next);
       setError(null);
       setLoading(false);
-    } catch {
+    } catch (err) {
+      const msg = describeFetchError(err);
+      if (isNetworkError(err) || msg.startsWith("Không kết nối")) {
+        setError(msg);
+        setLoading(false);
+        return;
+      }
       clearTokens();
       router.replace("/login");
     }

@@ -1,6 +1,5 @@
 import type { DashboardData } from "@/types/dashboard";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl, describeFetchError } from "@/lib/api-base";
 
 export type AuthUser = {
   id: number;
@@ -173,6 +172,14 @@ export function clearTokens() {
   localStorage.removeItem(REFRESH_KEY);
 }
 
+async function rawFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await globalThis.fetch(input, init);
+  } catch (err) {
+    throw new Error(describeFetchError(err));
+  }
+}
+
 let refreshInFlight: Promise<boolean> | null = null;
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -182,7 +189,7 @@ async function refreshAccessToken(): Promise<boolean> {
 
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${API_URL}/auth/refresh`, {
+      const res = await rawFetch(`${apiUrl()}/auth/refresh`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -214,13 +221,13 @@ async function authFetch(url: string, init: RequestInit = {}): Promise<Response>
   const extra = { ...(init.headers as Record<string, string> | undefined) };
   delete extra?.Authorization;
 
-  const res = await fetch(url, {
+  const res = await rawFetch(url, {
     ...init,
     headers: { ...authHeaders(json), ...extra },
   });
   if (res.status !== 401) return res;
   if (!(await refreshAccessToken())) return res;
-  return fetch(url, {
+  return rawFetch(url, {
     ...init,
     headers: { ...authHeaders(json), ...extra },
   });
@@ -257,7 +264,7 @@ export async function register(payload: {
   password_confirmation: string;
   organization_name: string;
 }): Promise<AuthResponse> {
-  const res = await fetch(`${API_URL}/auth/register`, {
+  const res = await rawFetch(`${apiUrl()}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(payload),
@@ -270,7 +277,7 @@ export async function login(payload: {
   login: string;
   password: string;
 }): Promise<AuthResponse> {
-  const res = await fetch(`${API_URL}/auth/login`, {
+  const res = await rawFetch(`${apiUrl()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(payload),
@@ -285,7 +292,7 @@ export async function logout(): Promise<void> {
 
   try {
     if (access) {
-      await fetch(`${API_URL}/auth/logout`, {
+      await fetch(`${apiUrl()}/auth/logout`, {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -308,7 +315,7 @@ export async function me(): Promise<MeResponse> {
   const access = getAccessToken();
   if (!access) throw new Error("Chưa đăng nhập.");
 
-  const res = await authFetch(`${API_URL}/me`);
+  const res = await authFetch(`${apiUrl()}/me`);
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
@@ -317,7 +324,7 @@ export async function updateProfile(payload: {
   name: string;
   phone?: string | null;
 }): Promise<AuthUser> {
-  const res = await fetch(`${API_URL}/me`, {
+  const res = await fetch(`${apiUrl()}/me`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -332,7 +339,7 @@ export async function changePassword(payload: {
   password: string;
   password_confirmation: string;
 }): Promise<void> {
-  const res = await fetch(`${API_URL}/auth/password`, {
+  const res = await fetch(`${apiUrl()}/auth/password`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -341,7 +348,7 @@ export async function changePassword(payload: {
 }
 
 export async function logoutOtherDevices(): Promise<void> {
-  const res = await fetch(`${API_URL}/auth/logout-others`, {
+  const res = await fetch(`${apiUrl()}/auth/logout-others`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ refresh_token: getRefreshToken() }),
@@ -353,7 +360,7 @@ export async function logoutAllDevices(): Promise<void> {
   const access = getAccessToken();
   try {
     if (access) {
-      await fetch(`${API_URL}/auth/logout-all`, {
+      await fetch(`${apiUrl()}/auth/logout-all`, {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -371,7 +378,7 @@ export async function logoutAllDevices(): Promise<void> {
 }
 
 export async function fetchSessions(): Promise<AuthSession[]> {
-  const res = await fetch(`${API_URL}/me/sessions`, {
+  const res = await fetch(`${apiUrl()}/me/sessions`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -384,7 +391,7 @@ export async function fetchLoginHistory(limit = 10): Promise<{
   data: LoginHistoryRow[];
   meta: { total: number; limit: number };
 }> {
-  const res = await fetch(`${API_URL}/me/login-history?limit=${limit}`, {
+  const res = await fetch(`${apiUrl()}/me/login-history?limit=${limit}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -396,7 +403,7 @@ export async function uploadAvatar(file: File): Promise<AuthUser> {
   const access = getAccessToken();
   const body = new FormData();
   body.append("avatar", file);
-  const res = await fetch(`${API_URL}/me/avatar`, {
+  const res = await fetch(`${apiUrl()}/me/avatar`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -413,7 +420,7 @@ export async function uploadAvatar(file: File): Promise<AuthUser> {
 }
 
 export async function fetchUserAvatarSrc(): Promise<string | null> {
-  const res = await fetch(`${API_URL}/me/avatar`, {
+  const res = await fetch(`${apiUrl()}/me/avatar`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -425,7 +432,7 @@ export async function fetchUserAvatarSrc(): Promise<string | null> {
 }
 
 export async function getOnboardingStatus(): Promise<OnboardingStatus> {
-  const res = await authFetch(`${API_URL}/onboarding/status`);
+  const res = await authFetch(`${apiUrl()}/onboarding/status`);
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
@@ -435,7 +442,7 @@ export async function setupOrganization(payload: {
   phone: string;
   address: string;
 }): Promise<AuthOrganization & { next_step: string }> {
-  const res = await fetch(`${API_URL}/onboarding/organization`, {
+  const res = await fetch(`${apiUrl()}/onboarding/organization`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -451,7 +458,7 @@ export async function setupFirstBranch(payload: {
   longitude?: number | null;
   check_in_radius_meters?: number;
 }): Promise<{ branch: Branch; next_step: string }> {
-  const res = await fetch(`${API_URL}/onboarding/branch`, {
+  const res = await fetch(`${apiUrl()}/onboarding/branch`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -482,13 +489,13 @@ export async function fetchDashboard(): Promise<DashboardData> {
   const access = getAccessToken();
   if (!access) throw new Error("Chưa đăng nhập.");
 
-  const res = await authFetch(`${API_URL}/dashboard`, { cache: "no-store" });
+  const res = await authFetch(`${apiUrl()}/dashboard`, { cache: "no-store" });
   if (!res.ok) throw new Error(await parseError(res));
   return (await res.json()) as DashboardData;
 }
 
 export async function fetchBranches(): Promise<Branch[]> {
-  const res = await fetch(`${API_URL}/branches`, {
+  const res = await fetch(`${apiUrl()}/branches`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -497,7 +504,7 @@ export async function fetchBranches(): Promise<Branch[]> {
 }
 
 export async function fetchOrganization(): Promise<AuthOrganization> {
-  const res = await fetch(`${API_URL}/organization`, {
+  const res = await fetch(`${apiUrl()}/organization`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -522,7 +529,7 @@ export async function updateOrganization(payload: {
   industry?: string | null;
   intro?: string | null;
 }): Promise<AuthOrganization> {
-  const res = await fetch(`${API_URL}/organization`, {
+  const res = await fetch(`${apiUrl()}/organization`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -538,7 +545,7 @@ export async function uploadOrganizationLogo(
   const access = getAccessToken();
   const body = new FormData();
   body.append("logo", file);
-  const res = await fetch(`${API_URL}/organization/logo`, {
+  const res = await fetch(`${apiUrl()}/organization/logo`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -555,7 +562,7 @@ export async function uploadOrganizationLogo(
 }
 
 export async function fetchOrganizationLogoSrc(): Promise<string | null> {
-  const res = await fetch(`${API_URL}/organization/logo`, {
+  const res = await fetch(`${apiUrl()}/organization/logo`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -569,7 +576,7 @@ export async function fetchOrganizationLogoSrc(): Promise<string | null> {
 export async function fetchOrganizationDocuments(): Promise<
   OrganizationDocument[]
 > {
-  const res = await fetch(`${API_URL}/organization/documents`, {
+  const res = await fetch(`${apiUrl()}/organization/documents`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -585,7 +592,7 @@ export async function uploadOrganizationDocument(
   const body = new FormData();
   body.append("file", file);
   if (name) body.append("name", name);
-  const res = await fetch(`${API_URL}/organization/documents`, {
+  const res = await fetch(`${apiUrl()}/organization/documents`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -603,7 +610,7 @@ export async function downloadOrganizationDocument(
   filename: string,
 ): Promise<void> {
   const res = await fetch(
-    `${API_URL}/organization/documents/${id}/download`,
+    `${apiUrl()}/organization/documents/${id}/download`,
     { headers: authHeaders(false) },
   );
   if (!res.ok) throw new Error(await parseError(res));
@@ -619,7 +626,7 @@ export async function downloadOrganizationDocument(
 }
 
 export async function deleteOrganizationDocument(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/organization/documents/${id}`, {
+  const res = await fetch(`${apiUrl()}/organization/documents/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });
@@ -638,7 +645,7 @@ export type BranchPayload = {
 };
 
 export async function createBranch(payload: BranchPayload): Promise<Branch> {
-  const res = await fetch(`${API_URL}/branches`, {
+  const res = await fetch(`${apiUrl()}/branches`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -652,7 +659,7 @@ export async function updateBranch(
   id: number,
   payload: Partial<BranchPayload>,
 ): Promise<Branch> {
-  const res = await fetch(`${API_URL}/branches/${id}`, {
+  const res = await fetch(`${apiUrl()}/branches/${id}`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -663,7 +670,7 @@ export async function updateBranch(
 }
 
 export async function deleteBranch(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/branches/${id}`, {
+  const res = await fetch(`${apiUrl()}/branches/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });

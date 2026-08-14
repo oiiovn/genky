@@ -1,7 +1,6 @@
 import { getAccessToken } from "@/lib/api";
 import type { RoleAction, RolePermissionCell } from "@/lib/roles-data";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type RoleIcon = "crown" | "shield" | "cash" | "user" | "box";
 
@@ -50,7 +49,7 @@ function authHeaders(json = true): HeadersInit {
 }
 
 export async function fetchRoles(): Promise<ApiRole[]> {
-  const res = await fetch(`${API_URL}/roles`, {
+  const res = await fetch(`${apiUrl()}/roles`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -63,7 +62,7 @@ export async function createRole(payload: {
   name: string;
   description?: string;
 }): Promise<ApiRole> {
-  const res = await fetch(`${API_URL}/roles`, {
+  const res = await fetch(`${apiUrl()}/roles`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -77,7 +76,7 @@ export async function updateRole(
   id: number,
   payload: { name?: string; description?: string },
 ): Promise<ApiRole> {
-  const res = await fetch(`${API_URL}/roles/${id}`, {
+  const res = await fetch(`${apiUrl()}/roles/${id}`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -91,7 +90,7 @@ export async function updateRolePermissions(
   id: number,
   permissions: Record<string, RolePermissionCell>,
 ): Promise<ApiRole> {
-  const res = await fetch(`${API_URL}/roles/${id}/permissions`, {
+  const res = await fetch(`${apiUrl()}/roles/${id}/permissions`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify({ permissions }),
@@ -102,7 +101,7 @@ export async function updateRolePermissions(
 }
 
 export async function deleteRole(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/roles/${id}`, {
+  const res = await fetch(`${apiUrl()}/roles/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });
@@ -110,7 +109,7 @@ export async function deleteRole(id: number): Promise<void> {
 }
 
 export async function fetchRoleMembers(id: number): Promise<RoleMember[]> {
-  const res = await fetch(`${API_URL}/roles/${id}/members`, {
+  const res = await fetch(`${apiUrl()}/roles/${id}/members`, {
     headers: authHeaders(false),
     cache: "no-store",
   });

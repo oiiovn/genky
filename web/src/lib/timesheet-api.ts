@@ -1,7 +1,6 @@
 import { getAccessToken } from "@/lib/api";
 import type { Employee } from "@/lib/employees-api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type TimesheetStatus = "approved" | "pending";
 
@@ -141,7 +140,7 @@ export function formatMoney(amount: number): string {
 export async function fetchTimesheets(
   filters: TimesheetFilters,
 ): Promise<TimesheetListResponse> {
-  const res = await fetch(`${API_URL}/timesheets?${toQuery(filters)}`, {
+  const res = await fetch(`${apiUrl()}/timesheets?${toQuery(filters)}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -155,7 +154,7 @@ export async function fetchTimesheetDashboard(
   const q = toQuery({ ...filters, page: 1, per_page: 1 });
   q.delete("page");
   q.delete("per_page");
-  const res = await fetch(`${API_URL}/timesheets/dashboard?${q}`, {
+  const res = await fetch(`${apiUrl()}/timesheets/dashboard?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -169,7 +168,7 @@ export async function generateTimesheet(payload: {
   month: number;
   branch_id?: number | null;
 }): Promise<{ created: number; total_employees: number }> {
-  const res = await fetch(`${API_URL}/timesheets/generate`, {
+  const res = await fetch(`${apiUrl()}/timesheets/generate`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -185,7 +184,7 @@ export async function approveTimesheets(payload: {
   employee_ids: number[];
   status?: TimesheetStatus;
 }): Promise<{ count: number; status: TimesheetStatus }> {
-  const res = await fetch(`${API_URL}/timesheets/approve`, {
+  const res = await fetch(`${apiUrl()}/timesheets/approve`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -201,7 +200,7 @@ export async function exportTimesheets(
   const q = toQuery({ ...filters, page: 1, per_page: 1 });
   q.delete("page");
   q.delete("per_page");
-  const res = await fetch(`${API_URL}/timesheets/export?${q}`, {
+  const res = await fetch(`${apiUrl()}/timesheets/export?${q}`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));

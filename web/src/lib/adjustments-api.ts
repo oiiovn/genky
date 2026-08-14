@@ -5,8 +5,7 @@ import type {
   AdjustmentStats,
   AdjustmentType,
 } from "@/lib/adjustments";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type AdjustmentPayload = {
   employee_id: number;
@@ -58,7 +57,7 @@ export async function fetchAdjustments(params: {
     year: String(params.year),
     month: String(params.month),
   });
-  const res = await fetch(`${API_URL}/adjustments?${q}`, {
+  const res = await fetch(`${apiUrl()}/adjustments?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -73,7 +72,7 @@ export async function fetchAdjustments(params: {
 export async function createAdjustment(
   payload: AdjustmentPayload,
 ): Promise<AdjustmentRecord> {
-  const res = await fetch(`${API_URL}/adjustments`, {
+  const res = await fetch(`${apiUrl()}/adjustments`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -87,7 +86,7 @@ export async function updateAdjustment(
   id: number,
   payload: AdjustmentPayload,
 ): Promise<AdjustmentRecord> {
-  const res = await fetch(`${API_URL}/adjustments/${id}`, {
+  const res = await fetch(`${apiUrl()}/adjustments/${id}`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -98,7 +97,7 @@ export async function updateAdjustment(
 }
 
 export async function deleteAdjustment(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/adjustments/${id}`, {
+  const res = await fetch(`${apiUrl()}/adjustments/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });

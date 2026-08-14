@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type ThemeId = "purple" | "blue" | "green" | "orange" | "pink" | "slate";
 export type DisplayMode = "light" | "dark";
@@ -49,7 +50,6 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
 };
 
 const KEY = "genky_appearance";
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
 export function appearanceFromApi(row: InterfaceApiPayload): AppearanceSettings {
   return migrateLegacyPurple({
@@ -162,7 +162,7 @@ async function parseError(res: Response): Promise<string> {
 export async function fetchInterfaceSettings(options?: {
   persist?: boolean;
 }): Promise<AppearanceSettings> {
-  const res = await fetch(`${API_URL}/settings/interface`, {
+  const res = await fetch(`${apiUrl()}/settings/interface`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -178,7 +178,7 @@ export async function fetchInterfaceSettings(options?: {
 export async function updateInterfaceSettings(
   settings: AppearanceSettings,
 ): Promise<AppearanceSettings> {
-  const res = await fetch(`${API_URL}/settings/interface`, {
+  const res = await fetch(`${apiUrl()}/settings/interface`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(appearanceToApi(settings)),
@@ -191,7 +191,7 @@ export async function updateInterfaceSettings(
 }
 
 export async function resetInterfaceSettings(): Promise<AppearanceSettings> {
-  const res = await fetch(`${API_URL}/settings/interface/reset`, {
+  const res = await fetch(`${apiUrl()}/settings/interface/reset`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({}),
@@ -208,7 +208,7 @@ export type UserPreferences = {
 };
 
 export async function fetchUserPreferences(): Promise<UserPreferences> {
-  const res = await fetch(`${API_URL}/me/preferences`, {
+  const res = await fetch(`${apiUrl()}/me/preferences`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -220,7 +220,7 @@ export async function fetchUserPreferences(): Promise<UserPreferences> {
 export async function updateUserPreferences(
   payload: Partial<UserPreferences>,
 ): Promise<UserPreferences> {
-  const res = await fetch(`${API_URL}/me/preferences`, {
+  const res = await fetch(`${apiUrl()}/me/preferences`, {
     method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -231,7 +231,7 @@ export async function updateUserPreferences(
 }
 
 export async function toggleSidebarPreference(): Promise<UserPreferences> {
-  const res = await fetch(`${API_URL}/me/preferences/sidebar/toggle`, {
+  const res = await fetch(`${apiUrl()}/me/preferences/sidebar/toggle`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({}),

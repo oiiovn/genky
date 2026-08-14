@@ -1,7 +1,6 @@
 import type { Branch } from "@/lib/api";
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type EmployeeRole = {
   id: number;
@@ -108,7 +107,7 @@ export async function fetchEmployees(
   if (filters.page) params.set("page", String(filters.page));
   params.set("per_page", String(filters.per_page ?? 10));
 
-  const res = await fetch(`${API_URL}/employees?${params.toString()}`, {
+  const res = await fetch(`${apiUrl()}/employees?${params.toString()}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -117,7 +116,7 @@ export async function fetchEmployees(
 }
 
 export async function fetchPositions(): Promise<Position[]> {
-  const res = await fetch(`${API_URL}/positions?active_only=1`, {
+  const res = await fetch(`${apiUrl()}/positions?active_only=1`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));
@@ -139,7 +138,7 @@ export async function createEmployee(payload: {
   salary_amount?: number;
   joined_at?: string;
 }): Promise<Employee> {
-  const res = await fetch(`${API_URL}/employees`, {
+  const res = await fetch(`${apiUrl()}/employees`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -153,7 +152,7 @@ export async function updateEmployee(
   id: number,
   payload: Record<string, unknown>,
 ): Promise<Employee> {
-  const res = await fetch(`${API_URL}/employees/${id}`, {
+  const res = await fetch(`${apiUrl()}/employees/${id}`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -164,7 +163,7 @@ export async function updateEmployee(
 }
 
 export async function deleteEmployee(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/employees/${id}`, {
+  const res = await fetch(`${apiUrl()}/employees/${id}`, {
     method: "DELETE",
     headers: authHeaders(false),
   });
@@ -184,7 +183,7 @@ export async function inviteEmployee(
   id: number,
   email?: string,
 ): Promise<InviteResult> {
-  const res = await fetch(`${API_URL}/employees/${id}/invite`, {
+  const res = await fetch(`${apiUrl()}/employees/${id}/invite`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(email ? { email } : {}),
@@ -226,7 +225,7 @@ export type InvitationPreview = {
 export async function fetchInvitation(
   token: string,
 ): Promise<InvitationPreview> {
-  const res = await fetch(`${API_URL}/invitations/${token}`, {
+  const res = await fetch(`${apiUrl()}/invitations/${token}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
@@ -249,7 +248,7 @@ export async function acceptInvitation(
   user: { id: number; name: string; email: string };
   role: string;
 }> {
-  const res = await fetch(`${API_URL}/invitations/${token}/accept`, {
+  const res = await fetch(`${apiUrl()}/invitations/${token}/accept`, {
     method: "POST",
     headers: {
       Accept: "application/json",

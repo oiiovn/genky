@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type LogAction = "create" | "update" | "delete" | "login" | "logout";
 export type LogResult = "success" | "fail";
@@ -88,7 +87,7 @@ export async function fetchActivityLogs(filters: ActivityFilters = {}): Promise<
   users: ActivityUser[];
   meta: ActivityMeta;
 }> {
-  const res = await fetch(`${API_URL}/activity-logs${queryOf(filters)}`, {
+  const res = await fetch(`${apiUrl()}/activity-logs${queryOf(filters)}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -109,7 +108,7 @@ export async function fetchActivityLogs(filters: ActivityFilters = {}): Promise<
 }
 
 export async function exportActivityLogs(filters: ActivityFilters = {}): Promise<void> {
-  const res = await fetch(`${API_URL}/activity-logs/export${queryOf(filters)}`, {
+  const res = await fetch(`${apiUrl()}/activity-logs/export${queryOf(filters)}`, {
     headers: authHeaders(false),
   });
   if (!res.ok) throw new Error(await parseError(res));

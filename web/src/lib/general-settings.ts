@@ -1,6 +1,5 @@
 import { getAccessToken } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
+import { apiUrl } from "@/lib/api-base";
 
 export type WeekStart = "monday" | "sunday";
 export type DateFormat = "d/m/Y" | "Y-m-d" | "m/d/Y";
@@ -139,7 +138,7 @@ async function parseError(res: Response): Promise<string> {
 }
 
 export async function fetchGeneralOverview(): Promise<GeneralOverview> {
-  const res = await fetch(`${API_URL}/settings/general`, {
+  const res = await fetch(`${apiUrl()}/settings/general`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
@@ -150,7 +149,7 @@ export async function fetchGeneralOverview(): Promise<GeneralOverview> {
 export async function updateGeneralSettings(
   payload: GeneralSettings,
 ): Promise<GeneralSettings> {
-  const res = await fetch(`${API_URL}/settings/general`, {
+  const res = await fetch(`${apiUrl()}/settings/general`, {
     method: "PUT",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -161,7 +160,7 @@ export async function updateGeneralSettings(
 }
 
 export async function createGeneralBackup(): Promise<GeneralBackupInfo> {
-  const res = await fetch(`${API_URL}/settings/general/backup`, {
+  const res = await fetch(`${apiUrl()}/settings/general/backup`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({}),
