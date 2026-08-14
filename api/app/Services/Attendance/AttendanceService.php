@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -370,6 +371,14 @@ class AttendanceService
 
     protected function excludeRow(int $employeeId, string $date, int $branchId): void
     {
+        if (! Schema::hasTable('attendance_exclusions')) {
+            throw ValidationException::withMessages([
+                'attendance' => [
+                    'Chưa cập nhật cơ sở dữ liệu. Vui lòng chạy php artisan migrate --force.',
+                ],
+            ]);
+        }
+
         AttendanceExclusion::query()->updateOrCreate(
             [
                 'organization_id' => TenantContext::id(),
@@ -523,6 +532,10 @@ class AttendanceService
 
             return $this->buildRowPayload($employee, $log, $shift, $date, $branchId);
         });
+
+        if (! Schema::hasTable('attendance_exclusions')) {
+            return $rows->values();
+        }
 
         $excluded = AttendanceExclusion::query()
             ->whereDate('work_date', $date)
