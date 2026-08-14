@@ -2,50 +2,42 @@ function isLoopbackHost(value: string): boolean {
   return /localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/.test(value);
 }
 
-function apexHost(hostname: string): string {
-  return hostname.replace(/^www\./, "");
+/** Duy nhất một API production — web và mobile cùng gọi URL này. */
+export const PRODUCTION_API_URL = "https://api.genky.vn/api";
+
+const LOCAL_API_URL = "http://127.0.0.1:8000/api";
+
+function normalize(url: string): string {
+  return url.trim().replace(/\/$/, "");
 }
 
-function liveApiUrl(hostname: string): string {
-  return `https://api.${apexHost(hostname)}/api`;
+function isUsableApiUrl(url: string): boolean {
+  if (!url) return false;
+  if (isLoopbackHost(url)) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:") return false;
+    if (parsed.hostname === "genky.vn" || parsed.hostname === "www.genky.vn") {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function apiUrl(): string {
-  const configured = (process.env.NEXT_PUBLIC_API_URL ?? "")
-    .trim()
-    .replace(/\/$/, "");
+  const configured = normalize(process.env.NEXT_PUBLIC_API_URL ?? "");
 
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (!isLoopbackHost(host)) {
-      const live = liveApiUrl(host);
-
-      if (!configured || isLoopbackHost(configured)) {
-        return live;
-      }
-
-      try {
-        const parsed = new URL(configured);
-        if (
-          parsed.hostname === host ||
-          parsed.hostname === apexHost(host) ||
-          parsed.hostname === `www.${apexHost(host)}`
-        ) {
-          return live;
-        }
-        if (parsed.protocol === "http:") {
-          parsed.protocol = "https:";
-          return `${parsed.origin}${parsed.pathname}`.replace(/\/$/, "");
-        }
-      } catch {
-        return live;
-      }
-
-      return configured;
-    }
+  if (typeof window !== "undefined" && !isLoopbackHost(window.location.hostname)) {
+    return PRODUCTION_API_URL;
   }
 
-  return configured || "http://127.0.0.1:8000/api";
+  if (process.env.NODE_ENV === "production") {
+    return isUsableApiUrl(configured) ? configured : PRODUCTION_API_URL;
+  }
+
+  return configured || LOCAL_API_URL;
 }
 
 export function isNetworkError(err: unknown): boolean {
@@ -62,7 +54,7 @@ export function isNetworkError(err: unknown): boolean {
 
 export function describeFetchError(err: unknown): string {
   if (isNetworkError(err)) {
-    return "Không kết nối được máy chủ. Mở https://genky.vn trên Safari (không dùng http).";
+    return "Không kết nối được máy chủ. Mở https://genky.vn rồi thử lại.";
   }
   if (err instanceof Error && err.message) return err.message;
   return "Có lỗi xảy ra, vui lòng thử lại.";

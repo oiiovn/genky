@@ -43,10 +43,26 @@ flutter pub get
 flutter run
 ```
 
+## Kiến trúc API
+
+Web (`https://genky.vn`) và mobile cùng gọi một URL:
+
+```
+https://api.genky.vn/api
+```
+
+Không dùng `https://genky.vn/api`.
+
 ## Biến môi trường
 
-`web/.env.local`:
+`web/.env.local` (máy dev):
 
 ```
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api
+```
+
+Build production trên host:
+
+```
+NEXT_PUBLIC_API_URL=https://api.genky.vn/api
 ```
