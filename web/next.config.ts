@@ -3,7 +3,10 @@ import type { NextConfig } from "next";
 
 const appDir = process.cwd();
 const laravelOrigin = (
-  process.env.LARAVEL_ORIGIN ?? "http://127.0.0.1:8000"
+  process.env.LARAVEL_ORIGIN ??
+  (process.env.NODE_ENV === "production"
+    ? "https://api.genky.vn"
+    : "http://127.0.0.1:8000")
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {

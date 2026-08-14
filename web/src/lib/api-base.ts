@@ -2,6 +2,14 @@ function isLoopbackHost(value: string): boolean {
   return /localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]/.test(value);
 }
 
+function apexHost(hostname: string): string {
+  return hostname.replace(/^www\./, "");
+}
+
+function liveApiUrl(hostname: string): string {
+  return `https://api.${apexHost(hostname)}/api`;
+}
+
 export function apiUrl(): string {
   const configured = (process.env.NEXT_PUBLIC_API_URL ?? "")
     .trim()
@@ -9,29 +17,28 @@ export function apiUrl(): string {
 
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
-    const onPublicHost = !isLoopbackHost(host);
+    if (!isLoopbackHost(host)) {
+      const live = liveApiUrl(host);
 
-    if (onPublicHost) {
       if (!configured || isLoopbackHost(configured)) {
-        return `${window.location.origin}/api`;
+        return live;
       }
 
-      if (
-        window.location.protocol === "https:" &&
-        configured.startsWith("http://")
-      ) {
-        try {
-          const parsed = new URL(configured);
-          if (parsed.hostname === host) {
-            return `https://${parsed.host}${parsed.pathname}`.replace(
-              /\/$/,
-              "",
-            );
-          }
-        } catch {
-          /* ignore */
+      try {
+        const parsed = new URL(configured);
+        if (
+          parsed.hostname === host ||
+          parsed.hostname === apexHost(host) ||
+          parsed.hostname === `www.${apexHost(host)}`
+        ) {
+          return live;
         }
-        return `${window.location.origin}/api`;
+        if (parsed.protocol === "http:") {
+          parsed.protocol = "https:";
+          return `${parsed.origin}${parsed.pathname}`.replace(/\/$/, "");
+        }
+      } catch {
+        return live;
       }
 
       return configured;
@@ -55,7 +62,7 @@ export function isNetworkError(err: unknown): boolean {
 
 export function describeFetchError(err: unknown): string {
   if (isNetworkError(err)) {
-    return "Không kết nối được máy chủ. Trên điện thoại hãy mở https://genky.vn.";
+    return "Không kết nối được máy chủ. Mở https://genky.vn trên Safari (không dùng http).";
   }
   if (err instanceof Error && err.message) return err.message;
   return "Có lỗi xảy ra, vui lòng thử lại.";
