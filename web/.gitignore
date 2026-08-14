@@ -17,6 +17,7 @@
 /.next/
 /out/
 /public/_next/
+/public/assets/
 
 # production
 /build

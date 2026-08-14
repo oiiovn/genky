@@ -166,7 +166,13 @@ export function LoginForm() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="space-y-4" autoComplete="on">
+        <form
+          onSubmit={onSubmit}
+          method="post"
+          action="/backend/auth/login"
+          className="space-y-4"
+          autoComplete="on"
+        >
           {tab === "register" && (
             <>
               <div>

@@ -15,6 +15,7 @@ const pageCacheHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  assetPrefix: "/assets",
   outputFileTracingRoot: appDir,
   experimental: {
     cpus: 1,
@@ -44,7 +45,7 @@ const nextConfig: NextConfig = {
         headers: pageCacheHeaders,
       },
       {
-        source: "/:path((?!_next|favicon.ico).*)",
+        source: "/:path((?!_next|assets|favicon.ico).*)",
         headers: pageCacheHeaders,
       },
     ];
