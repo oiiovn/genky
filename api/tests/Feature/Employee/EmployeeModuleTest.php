@@ -214,6 +214,16 @@ class EmployeeModuleTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.email', 'an@fresh.test')
             ->assertJsonStructure(['data' => ['token', 'invite_url', 'expires_at']]);
+
+        $this->app['auth']->forgetGuards();
+
+        $inviteUrl = $this->withToken($ctx['token'])
+            ->withHeaders(['Origin' => 'https://genky.vn'])
+            ->postJson('/api/employees/'.$employee['id'].'/invite')
+            ->assertCreated()
+            ->json('data.invite_url');
+
+        $this->assertStringStartsWith('https://genky.vn/invite/', (string) $inviteUrl);
     }
 
     public function test_accept_invitation_creates_employee_account(): void

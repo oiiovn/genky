@@ -191,7 +191,27 @@ export async function inviteEmployee(
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
-  return json.data as InviteResult;
+  const data = json.data as InviteResult;
+  return {
+    ...data,
+    invite_url: publicInviteUrl(data),
+  };
+}
+
+export function publicInviteUrl(invite: Pick<InviteResult, "invite_url" | "token">): string {
+  const fallback = `/invite/${invite.token}`;
+  if (typeof window === "undefined") {
+    return invite.invite_url || fallback;
+  }
+  try {
+    const parsed = new URL(invite.invite_url, window.location.origin);
+    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
+      return `${window.location.origin}/invite/${invite.token}`;
+    }
+    return parsed.toString();
+  } catch {
+    return `${window.location.origin}${fallback}`;
+  }
 }
 
 export type InvitationPreview = {

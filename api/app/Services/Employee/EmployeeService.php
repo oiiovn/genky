@@ -534,16 +534,68 @@ class EmployeeService
 
     public function invitationPayload(EmployeeInvitation $invitation): array
     {
-        $frontend = rtrim((string) config('app.frontend_url', 'http://localhost:3000'), '/');
-
         return [
             'id' => $invitation->id,
             'employee_id' => $invitation->employee_id,
             'email' => $invitation->email,
             'token' => $invitation->token,
             'expires_at' => $invitation->expires_at?->toIso8601String(),
-            'invite_url' => $frontend.'/invite/'.$invitation->token,
+            'invite_url' => $this->frontendBaseUrl().'/invite/'.$invitation->token,
         ];
+    }
+
+    protected function frontendBaseUrl(): string
+    {
+        $configured = rtrim((string) config('app.frontend_url', ''), '/');
+        if ($configured !== '' && ! $this->isLocalHostUrl($configured)) {
+            return $configured;
+        }
+
+        $fromRequest = $this->publicOriginFromRequest();
+        if ($fromRequest) {
+            return $fromRequest;
+        }
+
+        $appUrl = rtrim((string) config('app.url', ''), '/');
+        if ($appUrl !== '' && ! $this->isLocalHostUrl($appUrl)) {
+            return $appUrl;
+        }
+
+        return $configured !== '' ? $configured : 'http://localhost:3000';
+    }
+
+    protected function isLocalHostUrl(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return in_array($host, ['localhost', '127.0.0.1', '::1', '0.0.0.0'], true);
+    }
+
+    protected function publicOriginFromRequest(): ?string
+    {
+        $raw = request()->headers->get('Origin')
+            ?: request()->headers->get('Referer');
+
+        if (! is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        $parts = parse_url($raw);
+        if (! is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+            return null;
+        }
+
+        $base = $parts['scheme'].'://'.$parts['host'];
+        if ($this->isLocalHostUrl($base)) {
+            return null;
+        }
+
+        $port = isset($parts['port']) ? (int) $parts['port'] : null;
+        if ($port && ! in_array($port, [80, 443], true)) {
+            $base .= ':'.$port;
+        }
+
+        return $base;
     }
 
 
