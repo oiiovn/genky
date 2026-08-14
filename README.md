@@ -45,13 +45,13 @@ flutter run
 
 ## Kiến trúc API
 
-Web (`https://genky.vn`) và mobile cùng gọi một URL:
+Web (`https://genky.vn`) gọi cùng origin `/backend`, server forward tới Laravel:
 
 ```
 https://api.genky.vn/api
 ```
 
-Không dùng `https://genky.vn/api`.
+App mobile native cũng gọi trực tiếp `https://api.genky.vn/api`.
 
 ## Biến môi trường
 

@@ -1,5 +1,7 @@
 import { LoginForm } from "@/components/auth/LoginForm";
 
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#f7f5ff]">

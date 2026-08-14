@@ -11,32 +11,16 @@ function normalize(url: string): string {
   return url.trim().replace(/\/$/, "");
 }
 
-function isUsableApiUrl(url: string): boolean {
-  if (!url) return false;
-  if (isLoopbackHost(url)) return false;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === "http:") return false;
-    if (parsed.hostname === "genky.vn" || parsed.hostname === "www.genky.vn") {
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function apiUrl(): string {
-  const configured = normalize(process.env.NEXT_PUBLIC_API_URL ?? "");
-
   if (typeof window !== "undefined" && !isLoopbackHost(window.location.hostname)) {
-    return PRODUCTION_API_URL;
+    return `${window.location.origin}/backend`;
   }
 
   if (process.env.NODE_ENV === "production") {
-    return isUsableApiUrl(configured) ? configured : PRODUCTION_API_URL;
+    return PRODUCTION_API_URL;
   }
 
+  const configured = normalize(process.env.NEXT_PUBLIC_API_URL ?? "");
   return configured || LOCAL_API_URL;
 }
 
