@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Shift;
 
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -16,7 +17,19 @@ class UpdateShiftRequest extends FormRequest
     {
         return [
             'name' => ['sometimes', 'string', 'max:120'],
-            'code' => ['sometimes', 'string', 'max:32'],
+            'code' => [
+                'sometimes',
+                'string',
+                'max:32',
+                Rule::unique('shifts', 'code')
+                    ->where(
+                        fn ($query) => $query->where(
+                            'organization_id',
+                            TenantContext::id()
+                        )
+                    )
+                    ->ignore((int) $this->route('shift')),
+            ],
             'start_time' => ['sometimes', 'date_format:H:i'],
             'end_time' => ['sometimes', 'date_format:H:i'],
             'break_time' => ['nullable', 'integer', 'min:0', 'max:480'],
@@ -27,6 +40,20 @@ class UpdateShiftRequest extends FormRequest
             'capacity' => ['nullable', 'integer', 'min:0', 'max:500'],
             'status' => ['sometimes', Rule::in(['active', 'inactive'])],
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+        ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('code'))) {
+            $this->merge(['code' => strtoupper(trim($this->input('code')))]);
+        }
+    }
+
+    public function messages(): array
+    {
+        return [
+            'code.unique' => 'Mã ca đã tồn tại trong tổ chức.',
         ];
     }
 }

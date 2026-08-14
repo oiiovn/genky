@@ -9,6 +9,7 @@ import { ShiftDetailPanel } from "@/components/shifts/ShiftDetailPanel";
 import { ShiftFormModal } from "@/components/shifts/ShiftFormModal";
 import { ShiftStatsCards } from "@/components/shifts/ShiftStatsCards";
 import { ShiftTable } from "@/components/shifts/ShiftTable";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   fetchBranches,
   fetchDashboard,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/api";
 import {
   createShift,
+  deleteShift,
   exportShifts,
   fetchShiftSummary,
   fetchShifts,
@@ -65,6 +67,8 @@ export default function ShiftsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Shift | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Shift | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadList = useCallback(
     async (opts?: {
@@ -201,6 +205,28 @@ export default function ShiftsPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteShift(pendingDelete.id);
+      if (selected?.id === pendingDelete.id) {
+        setSelected(null);
+      }
+      setPendingDelete(null);
+      await refreshAll();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Không thể xóa ca làm.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleImport(file: File) {
     setError(null);
     try {
@@ -330,6 +356,7 @@ export default function ShiftsPage() {
                 onDuplicate={(shift) => {
                   void handleDuplicate(shift);
                 }}
+                onDelete={setPendingDelete}
                 onPageChange={(p) => {
                   void loadList({ page: p });
                 }}
@@ -368,6 +395,21 @@ export default function ShiftsPage() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Xóa ca làm"
+        message={
+          pendingDelete
+            ? `Xóa ca “${pendingDelete.name}”? Ca đang có phân công sẽ không thể xóa.`
+            : ""
+        }
+        loading={deleting}
+        onClose={() => {
+          if (!deleting) setPendingDelete(null);
+        }}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }

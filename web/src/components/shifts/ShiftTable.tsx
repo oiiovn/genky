@@ -5,9 +5,9 @@ import {
   Copy,
   LayoutGrid,
   List,
-  MoreHorizontal,
   Pencil,
   Search,
+  Trash2,
 } from "lucide-react";
 import type { Shift } from "@/lib/shifts-api";
 import { formatDuration } from "@/lib/shifts-api";
@@ -38,6 +38,7 @@ export function ShiftTable({
   onEdit,
   onPageChange,
   onDuplicate,
+  onDelete,
 }: {
   rows: Shift[];
   total: number;
@@ -56,6 +57,7 @@ export function ShiftTable({
   onEdit: (shift: Shift) => void;
   onPageChange: (p: number) => void;
   onDuplicate: (shift: Shift) => void;
+  onDelete: (shift: Shift) => void;
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -251,10 +253,12 @@ export function ShiftTable({
                           </button>
                           <button
                             type="button"
-                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
-                            aria-label="Thêm"
+                            onClick={() => onDelete(row)}
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                            aria-label="Xóa ca"
+                            title="Xóa ca"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>

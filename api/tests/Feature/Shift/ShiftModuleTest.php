@@ -98,6 +98,16 @@ class ShiftModuleTest extends TestCase
         $this->app['auth']->forgetGuards();
 
         $this->withToken($ctx['token'])
+            ->putJson('/api/shifts/'.$created['id'], [
+                'code' => 'ct',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code')
+            ->assertJsonPath('errors.code.0', 'Mã ca đã tồn tại trong tổ chức.');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
             ->deleteJson('/api/shifts/'.$created['id'])
             ->assertOk();
 
