@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+:root {
+  --background: #eef2f7;
+  --foreground: #0f172a;
+  --genky-primary: #111827;
+  --genky-primary-hover: #030712;
+  --genky-secondary: #f3f4f6;
+  --primary: var(--genky-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-plus-jakarta);
+  --color-indigo-50: var(--genky-secondary);
+  --color-indigo-100: color-mix(in srgb, var(--genky-primary) 16%, white);
+  --color-indigo-200: color-mix(in srgb, var(--genky-primary) 28%, white);
+  --color-indigo-400: color-mix(in srgb, var(--genky-primary) 78%, white);
+  --color-indigo-500: var(--genky-primary);
+  --color-indigo-600: var(--genky-primary-hover);
+  --color-indigo-700: color-mix(in srgb, var(--genky-primary) 82%, black);
+  --color-violet-50: var(--genky-secondary);
+  --color-violet-100: color-mix(in srgb, var(--genky-primary) 16%, white);
+  --color-violet-200: color-mix(in srgb, var(--genky-primary) 28%, white);
+  --color-violet-500: var(--genky-primary);
+  --color-violet-600: var(--genky-primary-hover);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-plus-jakarta), "Segoe UI", sans-serif;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+}
+
+html[data-theme="dark"] body {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .bg-white {
+  background-color: #1e293b !important;
+}
+
+html[data-theme="dark"] .bg-\[\#F3F4F6\] {
+  background-color: #0f172a !important;
+}
+
+html[data-theme="dark"] .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+html[data-theme="dark"] .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme="dark"] .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-slate-100 {
+  border-color: #334155 !important;
+}
+
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-slate-50\/80,
+html[data-theme="dark"] .bg-slate-50\/70 {
+  background-color: #1e293b !important;
+}
+
+html[data-theme="dark"] .hover\:bg-slate-50:hover,
+html[data-theme="dark"] .hover\:bg-slate-100:hover {
+  background-color: #334155 !important;
+}
+
+html[data-theme="dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+html[data-rounded="0"] .rounded-2xl,
+html[data-rounded="0"] .rounded-xl,
+html[data-rounded="0"] .rounded-lg {
+  border-radius: 0.25rem !important;
+}
+
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
