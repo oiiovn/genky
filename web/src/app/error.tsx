@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { reloadOnceOnChunkError } from "@/lib/chunk-error";
 
 export default function Error({
   error,
@@ -11,6 +12,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
+    if (reloadOnceOnChunkError(error)) return;
     console.error(error);
   }, [error]);
 
