@@ -67,3 +67,22 @@ export function nowInAppTz(date: Date = new Date()): Date {
     Number(p.second),
   );
 }
+
+function isoFromLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Tuần gần nhất: thứ 2 của tuần hiện tại → hôm nay (giờ HCM). */
+export function currentWeekRange(
+  date: Date = new Date(),
+  weekStart: "monday" | "sunday" = "monday",
+): { from: string; to: string } {
+  const today = nowInAppTz(date);
+  const dow = today.getDay();
+  const offset = weekStart === "monday" ? (dow === 0 ? 6 : dow - 1) : dow;
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+  return { from: isoFromLocalDate(start), to: todayIso(date) };
+}

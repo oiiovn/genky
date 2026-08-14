@@ -74,6 +74,14 @@ class AttendanceModuleTest extends TestCase
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.employee_id', $employee['id'])
             ->assertJsonPath('data.0.ui_status', 'not_checked_in');
+
+        $from = now()->startOfWeek()->toDateString();
+        $to = now()->toDateString();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?from='.$from.'&to='.$to)
+            ->assertOk()
+            ->assertJsonPath('data.0.employee_id', $employee['id']);
     }
 
     public function test_check_in_and_check_out_flow(): void

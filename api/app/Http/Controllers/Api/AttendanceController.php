@@ -48,6 +48,8 @@ class AttendanceController extends Controller
     {
         $paginator = $this->attendance->list($request->only([
             'date',
+            'from',
+            'to',
             'branch_id',
             'shift_id',
             'status',

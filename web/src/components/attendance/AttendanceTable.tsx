@@ -23,7 +23,8 @@ export function AttendanceTable({
   page,
   lastPage,
   search,
-  date,
+  dateFrom,
+  dateTo,
   branchFilter,
   shiftFilter,
   statusFilter,
@@ -32,7 +33,8 @@ export function AttendanceTable({
   loading,
   onSearchChange,
   onSearchSubmit,
-  onDateChange,
+  onDateFromChange,
+  onDateToChange,
   onBranchChange,
   onShiftChange,
   onStatusChange,
@@ -46,7 +48,8 @@ export function AttendanceTable({
   page: number;
   lastPage: number;
   search: string;
-  date: string;
+  dateFrom: string;
+  dateTo: string;
   branchFilter: string;
   shiftFilter: string;
   statusFilter: "" | AttendanceUiStatus;
@@ -55,7 +58,8 @@ export function AttendanceTable({
   loading?: boolean;
   onSearchChange: (v: string) => void;
   onSearchSubmit: () => void;
-  onDateChange: (v: string) => void;
+  onDateFromChange: (v: string) => void;
+  onDateToChange: (v: string) => void;
   onBranchChange: (v: string) => void;
   onShiftChange: (v: string) => void;
   onStatusChange: (v: "" | AttendanceUiStatus) => void;
@@ -69,9 +73,18 @@ export function AttendanceTable({
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
         <input
           type="date"
-          value={date}
-          onChange={(e) => onDateChange(e.target.value)}
+          value={dateFrom}
+          onChange={(e) => onDateFromChange(e.target.value)}
           className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 outline-none focus:border-indigo-400"
+          aria-label="Từ ngày"
+        />
+        <span className="text-xs text-slate-400">→</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => onDateToChange(e.target.value)}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 outline-none focus:border-indigo-400"
+          aria-label="Đến ngày"
         />
         <select
           value={branchFilter}
@@ -150,6 +163,7 @@ export function AttendanceTable({
           <thead>
             <tr className="border-b border-slate-100 text-xs tracking-wide text-slate-400 uppercase">
               <th className="px-4 py-3 font-medium">Nhân viên</th>
+              <th className="px-3 py-3 font-medium">Ngày</th>
               <th className="px-3 py-3 font-medium">Ca làm</th>
               <th className="px-3 py-3 font-medium">Check-in</th>
               <th className="px-3 py-3 font-medium">Check-out</th>
@@ -162,13 +176,13 @@ export function AttendanceTable({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-slate-400">
+                <td colSpan={9} className="px-5 py-12 text-center text-slate-400">
                   Đang tải...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-slate-400">
+                <td colSpan={9} className="px-5 py-12 text-center text-slate-400">
                   Không có dữ liệu chấm công.
                 </td>
               </tr>
@@ -198,6 +212,11 @@ export function AttendanceTable({
                         </p>
                       </div>
                     </div>
+                  </td>
+                  <td className="px-3 py-3 text-slate-600">
+                    {row.work_date
+                      ? row.work_date.split("-").reverse().join("/")
+                      : "—"}
                   </td>
                   <td className="px-3 py-3">
                     <p className="font-medium text-slate-700">{row.shift_name}</p>

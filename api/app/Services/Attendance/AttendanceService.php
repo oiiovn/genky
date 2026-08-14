@@ -90,7 +90,17 @@ class AttendanceService
     {
         AttendancePermission::for()->assertCanViewAny();
 
-        $date = $filters['date'] ?? now()->toDateString();
+        $from = $filters['from'] ?? $filters['date'] ?? now()->toDateString();
+        $to = $filters['to'] ?? $filters['date'] ?? $from;
+        $start = Carbon::parse((string) $from)->startOfDay();
+        $end = Carbon::parse((string) $to)->startOfDay();
+        if ($end->lt($start)) {
+            [$start, $end] = [$end->copy(), $start->copy()];
+        }
+        if ($start->diffInDays($end) > 31) {
+            $end = $start->copy()->addDays(31);
+        }
+
         $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
         $shiftId = ! empty($filters['shift_id']) ? (int) $filters['shift_id'] : null;
         $status = $filters['status'] ?? null;
@@ -98,7 +108,10 @@ class AttendanceService
         $perPage = (int) ($filters['per_page'] ?? 10);
         $page = max(1, (int) ($filters['page'] ?? 1));
 
-        $rows = $this->roster($date, $branchId);
+        $rows = collect();
+        for ($cursor = $start->copy(); $cursor->lte($end); $cursor->addDay()) {
+            $rows = $rows->concat($this->roster($cursor->toDateString(), $branchId));
+        }
 
         if ($shiftId) {
             $rows = $rows->filter(fn ($r) => (int) ($r['shift_id'] ?? 0) === $shiftId);

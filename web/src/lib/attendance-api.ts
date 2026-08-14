@@ -149,6 +149,8 @@ export async function fetchAttendanceShiftsToday(params: {
 
 export async function fetchAttendances(params: {
   date?: string;
+  from?: string;
+  to?: string;
   branch_id?: number | "";
   shift_id?: number | "";
   status?: string;
@@ -157,7 +159,9 @@ export async function fetchAttendances(params: {
   per_page?: number;
 }): Promise<{ data: AttendanceRow[]; meta: AttendanceListMeta }> {
   const q = new URLSearchParams();
-  if (params.date) q.set("date", params.date);
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  if (!params.from && !params.to && params.date) q.set("date", params.date);
   if (params.branch_id) q.set("branch_id", String(params.branch_id));
   if (params.shift_id) q.set("shift_id", String(params.shift_id));
   if (params.status) q.set("status", params.status);
@@ -210,10 +214,14 @@ export async function checkOutAttendance(payload: {
 
 export async function exportAttendances(params: {
   date?: string;
+  from?: string;
+  to?: string;
   branch_id?: number | "";
 }): Promise<void> {
   const q = new URLSearchParams();
-  if (params.date) q.set("date", params.date);
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  if (!params.from && !params.to && params.date) q.set("date", params.date);
   if (params.branch_id) q.set("branch_id", String(params.branch_id));
   const res = await fetch(`${apiUrl()}/attendances/export?${q}`, {
     headers: authHeaders(false),
@@ -223,7 +231,7 @@ export async function exportAttendances(params: {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `attendance-${params.date ?? "export"}.csv`;
+  a.download = `attendance-${params.from ?? params.date ?? "export"}${params.to ? "-"+params.to : ""}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

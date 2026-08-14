@@ -33,7 +33,7 @@ import {
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
 import type { DashboardData } from "@/types/dashboard";
-import { todayIso } from "@/lib/timezone";
+import { currentWeekRange } from "@/lib/timezone";
 
 const emptyStats: AttendanceStats = {
   total: 0,
@@ -52,7 +52,9 @@ export default function AttendancePage() {
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [date, setDate] = useState(todayIso());
+  const week = currentWeekRange();
+  const [dateFrom, setDateFrom] = useState(week.from);
+  const [dateTo, setDateTo] = useState(week.to);
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState<number | "">("");
@@ -77,7 +79,8 @@ export default function AttendancePage() {
 
   const loadAll = useCallback(
     async (opts?: {
-      date?: string;
+      from?: string;
+      to?: string;
       branch_id?: number | "";
       shift_id?: number | "";
       status?: "" | AttendanceUiStatus;
@@ -86,7 +89,8 @@ export default function AttendancePage() {
     }) => {
       setListLoading(true);
       setError(null);
-      const d = opts?.date ?? date;
+      const from = opts?.from ?? dateFrom;
+      const to = opts?.to ?? dateTo;
       const branchId = opts?.branch_id ?? branchFilter;
       const shiftId = opts?.shift_id ?? shiftFilter;
       const status = opts?.status ?? statusFilter;
@@ -96,7 +100,8 @@ export default function AttendancePage() {
       try {
         const [list, dash, today] = await Promise.all([
           fetchAttendances({
-            date: d,
+            from,
+            to,
             branch_id: branchId,
             shift_id: shiftId,
             status: status || undefined,
@@ -104,8 +109,8 @@ export default function AttendancePage() {
             page: p,
             per_page: 10,
           }),
-          fetchAttendanceDashboard({ date: d, branch_id: branchId }),
-          fetchAttendanceShiftsToday({ date: d, branch_id: branchId }),
+          fetchAttendanceDashboard({ date: to, branch_id: branchId }),
+          fetchAttendanceShiftsToday({ date: to, branch_id: branchId }),
         ]);
         setRows(list.data ?? []);
         setTotal(list.meta?.total ?? 0);
@@ -119,7 +124,7 @@ export default function AttendancePage() {
         setListLoading(false);
       }
     },
-    [date, branchFilter, shiftFilter, statusFilter, appliedSearch, page],
+    [dateFrom, dateTo, branchFilter, shiftFilter, statusFilter, appliedSearch, page],
   );
 
   useEffect(() => {
@@ -214,7 +219,8 @@ export default function AttendancePage() {
                 type="button"
                 onClick={() => {
                   void exportAttendances({
-                    date,
+                    from: dateFrom,
+                    to: dateTo,
                     branch_id: branchFilter,
                   }).catch((err) =>
                     setError(
@@ -262,7 +268,8 @@ export default function AttendancePage() {
                 page={page}
                 lastPage={lastPage}
                 search={search}
-                date={date}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
                 branchFilter={branchFilter === "" ? "" : String(branchFilter)}
                 shiftFilter={shiftFilter === "" ? "" : String(shiftFilter)}
                 statusFilter={statusFilter}
@@ -280,9 +287,13 @@ export default function AttendancePage() {
                   setAppliedSearch(search);
                   void loadAll({ search, page: 1 });
                 }}
-                onDateChange={(v) => {
-                  setDate(v);
-                  void loadAll({ date: v, page: 1 });
+                onDateFromChange={(v) => {
+                  setDateFrom(v);
+                  void loadAll({ from: v, page: 1 });
+                }}
+                onDateToChange={(v) => {
+                  setDateTo(v);
+                  void loadAll({ to: v, page: 1 });
                 }}
                 onBranchChange={(v) => {
                   const id = v ? Number(v) : "";
@@ -327,7 +338,7 @@ export default function AttendancePage() {
           employees={employees}
           branches={branches}
           shifts={shifts}
-          date={date}
+          date={dateTo}
           defaultBranchId={
             typeof branchFilter === "number"
               ? branchFilter
