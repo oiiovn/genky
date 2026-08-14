@@ -50,6 +50,8 @@ export default function AttendancePage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeesLoaded, setEmployeesLoaded] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export default function AttendancePage() {
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const loadAll = useCallback(
+  const loadList = useCallback(
     async (opts?: {
       from?: string;
       to?: string;
@@ -99,26 +101,20 @@ export default function AttendancePage() {
       const p = opts?.page ?? page;
 
       try {
-        const [list, dash, today] = await Promise.all([
-          fetchAttendances({
-            from,
-            to,
-            branch_id: branchId,
-            shift_id: shiftId,
-            status: status || undefined,
-            search: q || undefined,
-            page: p,
-            per_page: 10,
-          }),
-          fetchAttendanceDashboard({ date: to, branch_id: branchId }),
-          fetchAttendanceShiftsToday({ date: to, branch_id: branchId }),
-        ]);
+        const list = await fetchAttendances({
+          from,
+          to,
+          branch_id: branchId,
+          shift_id: shiftId,
+          status: status || undefined,
+          search: q || undefined,
+          page: p,
+          per_page: 10,
+        });
         setRows(list.data ?? []);
         setTotal(list.meta?.total ?? 0);
         setPage(list.meta?.current_page ?? 1);
         setLastPage(list.meta?.last_page ?? 1);
-        setStats(dash);
-        setShiftsToday(today);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Không tải được chấm công.");
       } finally {
@@ -126,6 +122,26 @@ export default function AttendancePage() {
       }
     },
     [dateFrom, dateTo, branchFilter, shiftFilter, statusFilter, appliedSearch, page],
+  );
+
+  const loadSummary = useCallback(
+    async (opts?: { date?: string; branch_id?: number | "" }) => {
+      const date = opts?.date ?? dateTo;
+      const branchId = opts?.branch_id ?? branchFilter;
+      try {
+        const [dash, today] = await Promise.all([
+          fetchAttendanceDashboard({ date, branch_id: branchId }),
+          fetchAttendanceShiftsToday({ date, branch_id: branchId }),
+        ]);
+        setStats(dash);
+        setShiftsToday(today);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Không tải được thống kê.",
+        );
+      }
+    },
+    [dateTo, branchFilter],
   );
 
   useEffect(() => {
@@ -146,24 +162,22 @@ export default function AttendancePage() {
           );
           return;
         }
-        const [dashboard, branchList, shiftList, empList] = await Promise.all([
+        const [dashboard, branchList, shiftList] = await Promise.all([
           fetchDashboard(),
           fetchBranches().catch(() => [] as Branch[]),
           fetchShifts({ per_page: 50 }).catch(() => ({
             data: [] as Shift[],
             meta: { current_page: 1, last_page: 1, per_page: 50, total: 0 },
           })),
-          fetchEmployees({ per_page: 100, status: "active" }).catch(() => ({
-            data: [] as Employee[],
-            meta: { current_page: 1, last_page: 1, per_page: 100, total: 0 },
-          })),
         ]);
         setShell(dashboard);
         setBranches(branchList);
         setShifts(shiftList.data);
-        setEmployees(empList.data);
         setLoading(false);
-        await loadAll({ page: 1 });
+        await Promise.all([
+          loadList({ page: 1 }),
+          loadSummary(),
+        ]);
       } catch {
         setLoading(false);
         router.replace("/login");
@@ -187,6 +201,25 @@ export default function AttendancePage() {
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
+  }
+
+  async function openQuickAttendance() {
+    if (!employeesLoaded) {
+      setModalLoading(true);
+      try {
+        const result = await fetchEmployees({ per_page: 100, status: "active" });
+        setEmployees(result.data ?? []);
+        setEmployeesLoaded(true);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Không tải được nhân viên.",
+        );
+        return;
+      } finally {
+        setModalLoading(false);
+      }
+    }
+    setModalOpen(true);
   }
 
   if (loading || !shell || !headerData) {
@@ -238,10 +271,11 @@ export default function AttendancePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setModalOpen(true)}
+                onClick={() => void openQuickAttendance()}
+                disabled={modalLoading}
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 px-3.5 py-2 text-sm font-semibold text-white shadow-sm"
               >
-                Check-in / Check-out
+                {modalLoading ? "Đang tải nhân viên..." : "Check-in / Check-out"}
                 <ChevronDown className="h-4 w-4 opacity-80" />
               </button>
               <Link
@@ -286,32 +320,38 @@ export default function AttendancePage() {
                 onSearchChange={setSearch}
                 onSearchSubmit={() => {
                   setAppliedSearch(search);
-                  void loadAll({ search, page: 1 });
+                  void loadList({ search, page: 1 });
                 }}
                 onDateFromChange={(v) => {
                   setDateFrom(v);
-                  void loadAll({ from: v, page: 1 });
+                  void loadList({ from: v, page: 1 });
                 }}
                 onDateToChange={(v) => {
                   setDateTo(v);
-                  void loadAll({ to: v, page: 1 });
+                  void Promise.all([
+                    loadList({ to: v, page: 1 }),
+                    loadSummary({ date: v }),
+                  ]);
                 }}
                 onBranchChange={(v) => {
                   const id = v ? Number(v) : "";
                   setBranchFilter(id);
-                  void loadAll({ branch_id: id, page: 1 });
+                  void Promise.all([
+                    loadList({ branch_id: id, page: 1 }),
+                    loadSummary({ branch_id: id }),
+                  ]);
                 }}
                 onShiftChange={(v) => {
                   const id = v ? Number(v) : "";
                   setShiftFilter(id);
-                  void loadAll({ shift_id: id, page: 1 });
+                  void loadList({ shift_id: id, page: 1 });
                 }}
                 onStatusChange={(v) => {
                   setStatusFilter(v);
-                  void loadAll({ status: v, page: 1 });
+                  void loadList({ status: v, page: 1 });
                 }}
                 onPageChange={(p) => {
-                  void loadAll({ page: p });
+                  void loadList({ page: p });
                 }}
                 onView={(row) => setRecordModal({ mode: "view", row })}
                 onEdit={(row) => setRecordModal({ mode: "edit", row })}
@@ -348,7 +388,7 @@ export default function AttendancePage() {
           onClose={() => setModalOpen(false)}
           onSaved={() => {
             showToast("Đã cập nhật chấm công.");
-            void loadAll();
+            void Promise.all([loadList(), loadSummary()]);
           }}
         />
       ) : null}
@@ -365,7 +405,7 @@ export default function AttendancePage() {
           }
           onSaved={() => {
             showToast("Đã lưu chấm công.");
-            void loadAll();
+            void Promise.all([loadList(), loadSummary()]);
           }}
         />
       )}
@@ -392,7 +432,7 @@ export default function AttendancePage() {
               .then(() => {
                 setPendingDelete(null);
                 showToast("Đã xoá bản ghi chấm công.");
-                void loadAll();
+                void Promise.all([loadList(), loadSummary()]);
               })
               .catch((err) =>
                 setError(

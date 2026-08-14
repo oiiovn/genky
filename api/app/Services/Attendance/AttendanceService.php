@@ -110,10 +110,7 @@ class AttendanceService
         $perPage = (int) ($filters['per_page'] ?? 10);
         $page = max(1, (int) ($filters['page'] ?? 1));
 
-        $rows = collect();
-        for ($cursor = $end->copy(); $cursor->gte($start); $cursor->subDay()) {
-            $rows = $rows->concat($this->roster($cursor->toDateString(), $branchId));
-        }
+        $rows = $this->rosterRange($start, $end, $branchId);
 
         if ($shiftId) {
             $rows = $rows->filter(fn ($r) => (int) ($r['shift_id'] ?? 0) === $shiftId);
@@ -468,6 +465,103 @@ class AttendanceService
             $shift,
             $log->work_date?->toDateString() ?? now()->toDateString()
         );
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function rosterRange(Carbon $start, Carbon $end, ?int $branchId = null): Collection
+    {
+        $permission = AttendancePermission::for();
+
+        if ($branchId) {
+            $permission->assertCanAccessBranch($branchId);
+        }
+
+        $employeeQuery = Employee::query()
+            ->with(['position', 'branches'])
+            ->where('status', Employee::STATUS_ACTIVE)
+            ->where(function ($query) use ($end) {
+                $query->whereNull('joined_at')
+                    ->orWhereDate('joined_at', '<=', $end->toDateString());
+            })
+            ->where(function ($query) use ($start) {
+                $query->whereNull('resigned_at')
+                    ->orWhereDate('resigned_at', '>=', $start->toDateString());
+            })
+            ->orderBy('full_name');
+
+        if ($permission->isEmployeeOnly()) {
+            $own = $permission->ownEmployee();
+            $employeeQuery->where('id', $own?->id ?? 0);
+        } elseif ($permission->isManager()) {
+            $managed = $permission->managedBranchIds();
+            $employeeQuery->whereHas('branches', fn ($q) => $q->whereIn('branches.id', $managed));
+            if ($branchId) {
+                $employeeQuery->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
+            }
+        } elseif ($branchId) {
+            $employeeQuery->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
+        }
+
+        $employees = $employeeQuery->get();
+        $employeeIds = $employees->pluck('id');
+
+        $logs = AttendanceLog::query()
+            ->with(['shift', 'branch'])
+            ->whereIn('employee_id', $employeeIds)
+            ->whereDate('work_date', '>=', $start->toDateString())
+            ->whereDate('work_date', '<=', $end->toDateString())
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+            ->get()
+            ->keyBy(fn (AttendanceLog $log) => $log->work_date->toDateString().':'.$log->employee_id);
+
+        $assignments = ShiftAssignment::query()
+            ->with('shift')
+            ->whereIn('employee_id', $employeeIds)
+            ->whereDate('date', '>=', $start->toDateString())
+            ->whereDate('date', '<=', $end->toDateString())
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+            ->get()
+            ->keyBy(fn (ShiftAssignment $row) => Carbon::parse($row->date)->toDateString().':'.$row->employee_id);
+
+        $excluded = collect();
+        if (Schema::hasTable('attendance_exclusions')) {
+            $excluded = AttendanceExclusion::query()
+                ->whereDate('work_date', '>=', $start->toDateString())
+                ->whereDate('work_date', '<=', $end->toDateString())
+                ->get()
+                ->mapWithKeys(fn (AttendanceExclusion $row) => [
+                    $row->work_date->toDateString().':'.$row->employee_id.':'.$row->branch_id => true,
+                ]);
+        }
+
+        $rows = collect();
+        for ($cursor = $end->copy(); $cursor->gte($start); $cursor->subDay()) {
+            $date = $cursor->toDateString();
+            foreach ($employees as $employee) {
+                if (($employee->joined_at && $employee->joined_at->gt($cursor))
+                    || ($employee->resigned_at && $employee->resigned_at->lt($cursor))) {
+                    continue;
+                }
+
+                $key = $date.':'.$employee->id;
+                $log = $logs->get($key);
+                $assignment = $assignments->get($key);
+                $shift = $log?->shift ?? $assignment?->shift;
+                $row = $this->buildRowPayload($employee, $log, $shift, $date, $branchId);
+                $excludedKey = $date.':'.$row['employee_id'].':'.$row['branch_id'];
+
+                if (empty($row['id']) && $excluded->has($excludedKey)) {
+                    continue;
+                }
+
+                $rows->push($row);
+            }
+        }
+
+        return $rows;
     }
 
     /**
