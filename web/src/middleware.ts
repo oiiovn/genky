@@ -3,18 +3,16 @@ import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
-  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
+  const forwarded = request.headers.get("x-forwarded-proto");
 
   if (
-    proto === "http" &&
+    forwarded === "http" &&
     host &&
     !host.startsWith("localhost") &&
     !host.startsWith("127.0.0.1")
   ) {
-    const url = request.nextUrl.clone();
-    url.protocol = "https:";
-    url.host = host;
-    return NextResponse.redirect(url, 308);
+    const { pathname, search } = request.nextUrl;
+    return NextResponse.redirect(`https://${host}${pathname}${search}`, 308);
   }
 
   return NextResponse.next();
