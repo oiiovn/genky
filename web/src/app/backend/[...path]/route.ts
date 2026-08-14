@@ -31,6 +31,9 @@ async function proxy(
     if (!HOP.has(key.toLowerCase())) headers.set(key, value);
   }
 
+  headers.set("accept", "application/json");
+  headers.set("x-requested-with", "XMLHttpRequest");
+
   const method = req.method.toUpperCase();
   const body =
     method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();

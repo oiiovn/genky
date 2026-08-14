@@ -117,4 +117,11 @@ class AuthTenantTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('user.email', 'vu@genky.test');
     }
+
+    public function test_guest_api_returns_401_json_instead_of_redirect(): void
+    {
+        $this->get('/api/plans')
+            ->assertUnauthorized()
+            ->assertJsonStructure(['message']);
+    }
 }

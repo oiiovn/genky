@@ -16,8 +16,20 @@ return Application::configure(basePath: dirname(__DIR__))
             'feature' => \App\Http\Middleware\EnsureFeature::class,
             'tenant' => \App\Http\Middleware\SetTenantFromUser::class,
         ]);
+
+        $middleware->redirectGuestsTo(function ($request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return null;
+            }
+
+            return 'https://genky.vn/login';
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->shouldRenderJsonWhen(function ($request, \Throwable $e) {
+            return $request->is('api/*') || $request->expectsJson();
+        });
+
         $exceptions->render(function (\App\Services\Feature\FeatureNotEnabledException $e) {
             return $e->render();
         });
