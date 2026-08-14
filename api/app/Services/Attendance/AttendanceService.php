@@ -109,7 +109,7 @@ class AttendanceService
         $page = max(1, (int) ($filters['page'] ?? 1));
 
         $rows = collect();
-        for ($cursor = $start->copy(); $cursor->lte($end); $cursor->addDay()) {
+        for ($cursor = $end->copy(); $cursor->gte($start); $cursor->subDay()) {
             $rows = $rows->concat($this->roster($cursor->toDateString(), $branchId));
         }
 

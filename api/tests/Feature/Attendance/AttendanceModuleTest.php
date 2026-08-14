@@ -81,7 +81,8 @@ class AttendanceModuleTest extends TestCase
         $this->withToken($ctx['token'])
             ->getJson('/api/attendances?from='.$from.'&to='.$to)
             ->assertOk()
-            ->assertJsonPath('data.0.employee_id', $employee['id']);
+            ->assertJsonPath('data.0.employee_id', $employee['id'])
+            ->assertJsonPath('data.0.work_date', $to);
     }
 
     public function test_check_in_and_check_out_flow(): void
