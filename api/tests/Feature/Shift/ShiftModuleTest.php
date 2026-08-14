@@ -114,6 +114,42 @@ class ShiftModuleTest extends TestCase
         $this->assertDatabaseMissing('shifts', ['id' => $created['id']]);
     }
 
+    public function test_deleted_default_shift_is_not_recreated_when_listing(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $shiftId = Shift::query()
+            ->withoutGlobalScopes()
+            ->where('organization_id', $ctx['org_id'])
+            ->where('code', 'CS')
+            ->valueOrFail('id');
+
+        $this->withToken($ctx['token'])
+            ->putJson('/api/shifts/'.$shiftId, ['status' => 'inactive'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'inactive');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->deleteJson('/api/shifts/'.$shiftId)
+            ->assertOk();
+
+        $this->assertDatabaseMissing('shifts', ['id' => $shiftId]);
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->getJson('/api/shifts')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 3);
+
+        $this->assertDatabaseMissing('shifts', [
+            'organization_id' => $ctx['org_id'],
+            'code' => 'CS',
+        ]);
+    }
+
     public function test_assign_and_unassign_employee(): void
     {
         $ctx = $this->seedOwnerWithBranch();

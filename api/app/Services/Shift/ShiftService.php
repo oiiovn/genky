@@ -56,8 +56,6 @@ class ShiftService
     {
         ShiftPermission::for()->assertCanViewAny();
 
-        $this->seedDefaults();
-
         $query = Shift::query()->orderBy('start_time')->orderBy('name');
 
         $permission = ShiftPermission::for();
