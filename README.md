@@ -66,3 +66,26 @@ Build production trên host:
 ```
 NEXT_PUBLIC_API_URL=https://api.genky.vn/api
 ```
+
+## Deploy shared hosting
+
+```bash
+cd ~/genky
+git pull origin main
+
+cd web
+npm install
+npm run build
+```
+
+Sau khi build xong, restart ứng dụng Node.js rồi purge HTML/page cache của
+LiteSpeed. Không cache lâu các route như `/login`, `/dashboard`, `/attendance`
+và `/m`.
+
+Build mới được merge vào `public/assets/_next/static` thay vì xoá toàn bộ chunk
+cũ. Mặc định chunk cũ được giữ 7 ngày để các thiết bị còn HTML của deployment
+trước vẫn tải được. Có thể đổi thời gian này khi build:
+
+```bash
+STATIC_ASSET_GRACE_DAYS=14 npm run build
+```
