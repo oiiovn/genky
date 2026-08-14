@@ -3,6 +3,17 @@ import type { NextConfig } from "next";
 
 const appDir = process.cwd();
 
+const pageCacheHeaders = [
+  {
+    key: "Cache-Control",
+    value: "private, no-cache, no-store, max-age=0, must-revalidate",
+  },
+  {
+    key: "X-LiteSpeed-Cache-Control",
+    value: "no-cache",
+  },
+];
+
 const nextConfig: NextConfig = {
   outputFileTracingRoot: appDir,
   experimental: {
@@ -29,22 +40,12 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/((?!_next/static|_next/image).*)",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "private, no-cache, no-store, max-age=0, must-revalidate",
-          },
-          {
-            key: "X-LiteSpeed-Cache-Control",
-            value: "no-cache",
-          },
-          {
-            key: "Vary",
-            value:
-              "RSC, Next-Router-State-Tree, Next-Router-Prefetch, Next-Router-Segment-Prefetch, Accept",
-          },
-        ],
+        source: "/login",
+        headers: pageCacheHeaders,
+      },
+      {
+        source: "/:path((?!_next|favicon.ico).*)",
+        headers: pageCacheHeaders,
       },
     ];
   },
