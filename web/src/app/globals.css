@@ -12,7 +12,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-plus-jakarta);
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   --color-indigo-50: var(--genky-secondary);
   --color-indigo-100: color-mix(in srgb, var(--genky-primary) 16%, white);
   --color-indigo-200: color-mix(in srgb, var(--genky-primary) 28%, white);
@@ -30,7 +30,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-plus-jakarta), "Segoe UI", sans-serif;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
 }
 
 * {

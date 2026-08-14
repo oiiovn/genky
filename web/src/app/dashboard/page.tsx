@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AttendanceTable } from "@/components/dashboard/AttendanceTable";
 import { Header } from "@/components/dashboard/Header";
 import { KpiCards } from "@/components/dashboard/KpiCards";
@@ -16,24 +15,24 @@ import {
 } from "@/components/dashboard/SideWidgets";
 import { fetchDashboard, getAccessToken, me } from "@/lib/api";
 import { isStaffAppUser } from "@/lib/staff";
+import { hardReplace } from "@/lib/nav";
 import type { DashboardData } from "@/types/dashboard";
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function boot() {
       if (!getAccessToken()) {
-        router.replace("/login");
+        hardReplace("/login");
         return;
       }
 
       try {
         const profile = await me();
         if (profile.setup && !profile.setup.setup_completed) {
-          router.replace(
+          hardReplace(
             profile.setup.next_step === "branch"
               ? "/onboarding/branch"
               : "/onboarding",
@@ -41,14 +40,14 @@ export default function DashboardPage() {
           return;
         }
         if (isStaffAppUser(profile)) {
-          router.replace("/m");
+          hardReplace("/m");
           return;
         }
 
         const dashboard = await fetchDashboard();
         setData(dashboard);
       } catch {
-        router.replace("/login");
+        hardReplace("/login");
         return;
       } finally {
         setLoading(false);
@@ -56,7 +55,7 @@ export default function DashboardPage() {
     }
 
     void boot();
-  }, [router]);
+  }, []);
 
   const reload = useCallback(async () => {
     const dashboard = await fetchDashboard();

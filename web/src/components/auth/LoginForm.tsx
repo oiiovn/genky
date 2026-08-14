@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Building2,
@@ -17,9 +16,9 @@ import {
 import clsx from "clsx";
 import { login, register, resolvePostAuthPath, saveTokens } from "@/lib/api";
 import { describeFetchError } from "@/lib/api-base";
+import { hardPush } from "@/lib/nav";
 
 export function LoginForm() {
-  const router = useRouter();
   const [tab, setTab] = useState<"login" | "register">("login");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -63,9 +62,9 @@ export function LoginForm() {
       saveTokens(result.access_token, result.refresh_token);
       try {
         const next = await resolvePostAuthPath();
-        router.push(next);
+        hardPush(next);
       } catch {
-        router.push("/onboarding");
+        hardPush("/onboarding");
       }
     } catch (err) {
       const msg = describeFetchError(err);

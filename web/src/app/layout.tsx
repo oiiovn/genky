@@ -1,13 +1,9 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
 import { AppearanceProvider } from "@/components/appearance/AppearanceProvider";
 import "./globals.css";
 
-const plusJakarta = Plus_Jakarta_Sans({
-  variable: "--font-plus-jakarta",
-  subsets: ["latin", "vietnamese"],
-  weight: ["400", "500", "600", "700"],
-});
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
   title: "GENKY — HRM Platform",
@@ -24,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className={`${plusJakarta.variable} h-full antialiased`}>
+    <html lang="vi" className="h-full antialiased">
       <head>
         <script dangerouslySetInnerHTML={{ __html: appearanceBoot }} />
         <script dangerouslySetInnerHTML={{ __html: chunkReloadBoot }} />

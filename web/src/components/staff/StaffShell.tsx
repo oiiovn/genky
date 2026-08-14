@@ -9,9 +9,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { clearTokens, getAccessToken, logout as apiLogout, me } from "@/lib/api";
 import { describeFetchError, isNetworkError } from "@/lib/api-base";
+import { hardReplace } from "@/lib/nav";
 import {
   isStaffAppUser,
   staffSessionFromMe,
@@ -34,7 +35,6 @@ export function useStaff(): StaffContextValue {
 }
 
 export function StaffShell({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = useState<StaffSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,13 +42,13 @@ export function StaffShell({ children }: { children: ReactNode }) {
 
   const boot = useCallback(async () => {
     if (!getAccessToken()) {
-      router.replace("/login");
+      hardReplace("/login");
       return;
     }
     try {
       const profile = await me();
       if (!isStaffAppUser(profile)) {
-        router.replace("/dashboard");
+        hardReplace("/dashboard");
         return;
       }
       const next = staffSessionFromMe(profile);
@@ -71,9 +71,9 @@ export function StaffShell({ children }: { children: ReactNode }) {
         return;
       }
       clearTokens();
-      router.replace("/login");
+      hardReplace("/login");
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void boot();
@@ -86,11 +86,10 @@ export function StaffShell({ children }: { children: ReactNode }) {
       refresh: boot,
       logout: async () => {
         await apiLogout();
-        router.replace("/login");
-        router.refresh();
+        hardReplace("/login");
       },
     };
-  }, [session, boot, router]);
+  }, [session, boot]);
 
   if (loading) {
     return (
@@ -108,8 +107,7 @@ export function StaffShell({ children }: { children: ReactNode }) {
           type="button"
           onClick={() => {
             void apiLogout().then(() => {
-              router.replace("/login");
-              router.refresh();
+              hardReplace("/login");
             });
           }}
           className="rounded-full bg-white/10 px-4 py-2 text-sm text-white"

@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
     config.resolve.alias = {
       ...config.resolve.alias,
       "@": path.join(appDir, "src"),
+      "next/link": path.join(appDir, "src/components/ui/hard-link.tsx"),
     };
     return config;
   },
@@ -37,6 +38,11 @@ const nextConfig: NextConfig = {
           {
             key: "X-LiteSpeed-Cache-Control",
             value: "no-cache",
+          },
+          {
+            key: "Vary",
+            value:
+              "RSC, Next-Router-State-Tree, Next-Router-Prefetch, Next-Router-Segment-Prefetch, Accept",
           },
         ],
       },
