@@ -52,6 +52,9 @@ class RoleService
 
                 if ($role->wasRecentlyCreated || $role->permissions()->count() === 0) {
                     $this->syncPermissionRows($role, $def['permissions']);
+                } else {
+                    // Bổ sung resource mới từ catalog (vd. marketing_*) mà không ghi đè quyền đã chỉnh.
+                    $this->fillMissingPermissionRows($role, $def['permissions']);
                 }
             }
 
@@ -391,6 +394,48 @@ class RoleService
             RolePermission::query()->insert($rows);
         }
 
+        AccessCache::bumpPermissions((int) $role->organization_id);
+    }
+
+    /**
+     * Chèn các cặp resource/action còn thiếu theo catalog — không đụng quyền đã có.
+     *
+     * @param  array<string, array<string, bool>>  $defaults
+     */
+    protected function fillMissingPermissionRows(Role $role, array $defaults): void
+    {
+        $existing = RolePermission::query()
+            ->where('role_id', $role->id)
+            ->get(['resource', 'action'])
+            ->map(fn (RolePermission $p) => $p->resource.'.'.$p->action)
+            ->all();
+        $existingSet = array_fill_keys($existing, true);
+
+        $rows = [];
+        $now = now();
+        foreach (RolePermissionCatalog::resourceActions() as $resource => $actions) {
+            foreach ($actions as $action) {
+                $key = $resource.'.'.$action;
+                if (isset($existingSet[$key])) {
+                    continue;
+                }
+                $allowed = (bool) ($defaults[$resource][$action] ?? false);
+                $rows[] = [
+                    'role_id' => $role->id,
+                    'resource' => $resource,
+                    'action' => $action,
+                    'allowed' => $allowed,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        if ($rows === []) {
+            return;
+        }
+
+        RolePermission::query()->insert($rows);
         AccessCache::bumpPermissions((int) $role->organization_id);
     }
 

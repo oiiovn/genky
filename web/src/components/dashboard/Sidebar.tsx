@@ -13,8 +13,10 @@ import {
   Clock,
   FileBarChart,
   LayoutDashboard,
+  Megaphone,
   QrCode,
   Settings,
+  Star,
   Users,
   Wallet,
   Timer,
@@ -35,6 +37,7 @@ type NavGroup = {
   id: string;
   title: string;
   collapsible: boolean;
+  icon?: React.ComponentType<{ className?: string }>;
   items: NavItemConfig[];
 };
 
@@ -43,6 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: "hr",
     title: "Quản lý nhân sự",
     collapsible: true,
+    icon: Users,
     items: [
       { label: "Tổng quan", icon: LayoutDashboard, href: "/dashboard" },
       { label: "Nhân viên", icon: Users, href: "/employees" },
@@ -54,6 +58,15 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Lương", icon: Wallet, href: "/payroll" },
       { label: "Thưởng / Phạt", icon: Award, href: "/adjustments" },
       { label: "Nghỉ phép", icon: Umbrella, href: "/leaves" },
+    ],
+  },
+  {
+    id: "marketing",
+    title: "Marketing",
+    collapsible: true,
+    icon: Megaphone,
+    items: [
+      { label: "Tăng đánh giá", icon: Star, href: "/marketing/reviews" },
     ],
   },
   {
@@ -294,7 +307,10 @@ export function Sidebar({
                 onClick={() => toggleGroup(childActive)}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
               >
-                <Users className="h-4 w-4 text-slate-400" />
+                {(() => {
+                  const GroupIcon = group.icon ?? Users;
+                  return <GroupIcon className="h-4 w-4 text-slate-400" />;
+                })()}
                 <span className="flex-1 text-left">{group.title}</span>
                 <ChevronDown
                   className={clsx(

@@ -48,6 +48,7 @@ const ADMIN_PREFIXES = [
   "/payroll",
   "/adjustments",
   "/leaves",
+  "/marketing",
   "/roles",
   "/settings",
   "/upgrade",

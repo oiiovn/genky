@@ -33,4 +33,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\App\Services\Feature\FeatureNotEnabledException $e) {
             return $e->render();
         });
+
+        $exceptions->render(function (\App\Services\Marketing\CampaignNotReadyException $e) {
+            return $e->render();
+        });
     })->create();

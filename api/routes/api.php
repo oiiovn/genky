@@ -24,6 +24,13 @@ use App\Http\Controllers\Api\LeaveController;
 use App\Http\Controllers\Api\AdjustmentController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\UserPreferencesController;
+use App\Http\Controllers\Api\Marketing\MarketingChannelController;
+use App\Http\Controllers\Api\Marketing\MarketingQrCodeController;
+use App\Http\Controllers\Api\Marketing\MarketingReviewCampaignController;
+use App\Http\Controllers\Api\Marketing\MarketingReviewController;
+use App\Http\Controllers\Api\Marketing\MarketingRewardCodeController;
+use App\Http\Controllers\Api\Marketing\MarketingRewardController;
+use App\Http\Controllers\Api\Marketing\PublicReviewRewardController;
 use App\Http\Middleware\LogActivity;
 use App\Http\Middleware\SetTenantFromUser;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +50,12 @@ Route::prefix('auth')->group(function () {
 
 Route::get('invitations/{token}', [EmployeeInvitationController::class, 'show']);
 Route::post('invitations/{token}/accept', [EmployeeInvitationController::class, 'accept']);
+
+// Public marketing — tách khỏi admin API, không cần đăng nhập
+Route::prefix('public/review-reward')->middleware('throttle:30,1')->group(function () {
+    Route::post('verify-order', [PublicReviewRewardController::class, 'verifyOrder']);
+    Route::get('claim/{token}', [PublicReviewRewardController::class, 'claim']);
+});
 
 Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class])->group(function () {
     Route::get('me', [AuthController::class, 'me']);
@@ -213,4 +226,41 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     Route::put('adjustments/{adjustment}', [AdjustmentController::class, 'update']);
     Route::patch('adjustments/{adjustment}', [AdjustmentController::class, 'update']);
     Route::delete('adjustments/{adjustment}', [AdjustmentController::class, 'destroy']);
+
+    // Marketing — Kênh bán hàng (settings)
+    Route::get('marketing/channels', [MarketingChannelController::class, 'index']);
+    Route::post('marketing/channels', [MarketingChannelController::class, 'store']);
+    Route::post('marketing/channels/reorder', [MarketingChannelController::class, 'reorder']);
+    Route::post('marketing/channels/seed-defaults', [MarketingChannelController::class, 'seedDefaults']);
+    Route::patch('marketing/channels/{id}', [MarketingChannelController::class, 'update']);
+    Route::put('marketing/channels/{id}', [MarketingChannelController::class, 'update']);
+    Route::delete('marketing/channels/{id}', [MarketingChannelController::class, 'destroy']);
+
+    // Marketing — Món tặng (settings catalog)
+    Route::get('marketing/rewards', [MarketingRewardController::class, 'index']);
+    Route::post('marketing/rewards', [MarketingRewardController::class, 'store']);
+    Route::post('marketing/rewards/reorder', [MarketingRewardController::class, 'reorder']);
+    Route::post('marketing/rewards/seed-defaults', [MarketingRewardController::class, 'seedDefaults']);
+    Route::patch('marketing/rewards/{id}', [MarketingRewardController::class, 'update']);
+    Route::put('marketing/rewards/{id}', [MarketingRewardController::class, 'update']);
+    Route::post('marketing/rewards/{id}/image', [MarketingRewardController::class, 'uploadImage']);
+    Route::delete('marketing/rewards/{id}/image', [MarketingRewardController::class, 'clearImage']);
+    Route::delete('marketing/rewards/{id}', [MarketingRewardController::class, 'destroy']);
+
+    // Marketing — QR theo chi nhánh
+    Route::get('marketing/qr-codes', [MarketingQrCodeController::class, 'index']);
+    Route::post('marketing/qr-codes/ensure-branches', [MarketingQrCodeController::class, 'ensureBranches']);
+
+    // Marketing — Tăng đánh giá (admin API)
+    Route::get('marketing/reviews/overview', [MarketingReviewController::class, 'overview']);
+    Route::get('marketing/reviews/form-meta', [MarketingReviewController::class, 'formMeta']);
+    Route::get('marketing/reviews', [MarketingReviewController::class, 'index']);
+    Route::post('marketing/reviews', [MarketingReviewController::class, 'store']);
+    Route::post('marketing/reviews/{id}/verify', [MarketingReviewController::class, 'verify']);
+    Route::post('marketing/reviews/{id}/reject', [MarketingReviewController::class, 'reject']);
+    Route::post('marketing/reviews/{id}/issue-reward', [MarketingReviewController::class, 'issueReward']);
+    Route::post('marketing/review-campaigns/{id}/activate', [MarketingReviewCampaignController::class, 'activate']);
+    Route::get('marketing/reward-redemptions', [MarketingRewardCodeController::class, 'history']);
+    Route::post('marketing/reward-codes/check', [MarketingRewardCodeController::class, 'check']);
+    Route::post('marketing/reward-codes/{id}/redeem', [MarketingRewardCodeController::class, 'redeem']);
 });

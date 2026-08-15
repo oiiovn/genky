@@ -126,6 +126,42 @@ class RolePermissionCatalog
                     ],
                 ],
             ],
+            [
+                'id' => 'marketing',
+                'label' => 'Marketing',
+                'rows' => [
+                    [
+                        'id' => 'marketing_review',
+                        'label' => 'Đánh giá / Review',
+                        'description' => 'Xem, tạo, xác minh, từ chối đánh giá 5★',
+                        'actions' => ['view', 'create', 'update'],
+                    ],
+                    [
+                        'id' => 'marketing_reward',
+                        'label' => 'Mã tặng món',
+                        'description' => 'Xem / kiểm tra mã, cấp mã, hủy mã',
+                        'actions' => ['view', 'create', 'delete'],
+                    ],
+                    [
+                        'id' => 'marketing_redemption',
+                        'label' => 'Đổi quà',
+                        'description' => 'Xem lịch sử và đổi mã quà tại quầy',
+                        'actions' => ['view', 'create', 'export'],
+                    ],
+                    [
+                        'id' => 'marketing_campaign',
+                        'label' => 'Chiến dịch đánh giá',
+                        'description' => 'Tạo / sửa / kích hoạt chiến dịch',
+                        'actions' => ['view', 'create', 'update'],
+                    ],
+                    [
+                        'id' => 'marketing_settings',
+                        'label' => 'Cài đặt Marketing',
+                        'description' => 'Kênh, món tặng, định dạng mã, QR, style',
+                        'actions' => ['view', 'update'],
+                    ],
+                ],
+            ],
         ];
     }
 
@@ -207,6 +243,8 @@ class RolePermissionCatalog
                     'products' => ['delete' => false],
                     'settings' => ['view' => true, 'update' => false],
                     'roles' => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
+                    'marketing_campaign' => ['view' => true, 'create' => false, 'update' => false],
+                    'marketing_settings' => ['view' => true, 'update' => true],
                 ]),
             ],
             [
@@ -241,6 +279,11 @@ class RolePermissionCatalog
                     'timesheet' => ['view' => false, 'create' => false, 'update' => false, 'export' => false],
                     'settings' => ['view' => false, 'update' => false],
                     'roles' => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
+                    'marketing_review' => ['view' => false, 'create' => false, 'update' => false],
+                    'marketing_reward' => ['view' => true, 'create' => false, 'delete' => false],
+                    'marketing_redemption' => ['view' => false, 'create' => true, 'export' => false],
+                    'marketing_campaign' => ['view' => false, 'create' => false, 'update' => false],
+                    'marketing_settings' => ['view' => false, 'update' => false],
                 ]),
             ],
             [
@@ -276,6 +319,11 @@ class RolePermissionCatalog
                     'timesheet' => ['view' => false, 'create' => false, 'update' => false, 'export' => false],
                     'settings' => ['view' => false, 'update' => false],
                     'roles' => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
+                    'marketing_review' => ['view' => false, 'create' => false, 'update' => false],
+                    'marketing_reward' => ['view' => true, 'create' => false, 'delete' => false],
+                    'marketing_redemption' => ['view' => false, 'create' => true, 'export' => false],
+                    'marketing_campaign' => ['view' => false, 'create' => false, 'update' => false],
+                    'marketing_settings' => ['view' => false, 'update' => false],
                 ]),
             ],
             [
@@ -311,6 +359,11 @@ class RolePermissionCatalog
                     'timesheet' => ['view' => false, 'create' => false, 'update' => false, 'export' => false],
                     'settings' => ['view' => false, 'update' => false],
                     'roles' => ['view' => false, 'create' => false, 'update' => false, 'delete' => false],
+                    'marketing_review' => ['view' => false, 'create' => false, 'update' => false],
+                    'marketing_reward' => ['view' => false, 'create' => false, 'delete' => false],
+                    'marketing_redemption' => ['view' => false, 'create' => false, 'export' => false],
+                    'marketing_campaign' => ['view' => false, 'create' => false, 'update' => false],
+                    'marketing_settings' => ['view' => false, 'update' => false],
                 ]),
             ],
         ];
