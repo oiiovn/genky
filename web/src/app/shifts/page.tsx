@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, Plus, Upload } from "lucide-react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { ShiftDetailPanel } from "@/components/shifts/ShiftDetailPanel";
 import { ShiftFormModal } from "@/components/shifts/ShiftFormModal";
 import { ShiftStatsCards } from "@/components/shifts/ShiftStatsCards";
@@ -32,9 +30,7 @@ const emptySummary: ShiftSummary = {
 };
 
 export default function ShiftsPage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quản lý ca làm việc của nhân viên",
-  );
+  const { branches } = useAdminChrome();
   const importRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
@@ -207,24 +203,8 @@ export default function ShiftsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Ca làm" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý ca làm việc của nhân viên"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -295,7 +275,7 @@ export default function ShiftsPage() {
                 search={search}
                 statusFilter={statusFilter}
                 activeTab={activeTab}
-                loading={listLoading}
+                loading={loading || listLoading}
                 onSearchChange={setSearch}
                 onSearchSubmit={() => {
                   setAppliedSearch(search);
@@ -335,7 +315,6 @@ export default function ShiftsPage() {
             />
           </div>
         </main>
-      </div>
 
       {modalOpen && (
         <ShiftFormModal
@@ -368,6 +347,6 @@ export default function ShiftsPage() {
         }}
         onConfirm={() => void handleDelete()}
       />
-    </div>
+    </>
   );
 }

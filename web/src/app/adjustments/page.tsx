@@ -11,8 +11,6 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { AdjustmentFormModal } from "@/components/adjustments/AdjustmentFormModal";
 import { AdjustmentStatsCards } from "@/components/adjustments/AdjustmentStatsCards";
 import {
@@ -54,9 +52,7 @@ function currentMonthParts() {
 }
 
 export default function AdjustmentsPage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quản lý thưởng và xử phạt nhân viên",
-  );
+  const { shell, branches } = useAdminChrome();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [records, setRecords] = useState<AdjustmentRecord[]>([]);
   const [monthStats, setMonthStats] = useState<AdjustmentStats | null>(null);
@@ -194,24 +190,8 @@ export default function AdjustmentsPage() {
     setMonth(d.getMonth() + 1);
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Thưởng / Phạt" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý thưởng và xử phạt nhân viên"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -270,6 +250,12 @@ export default function AdjustmentsPage() {
               </button>
             </div>
           </div>
+
+          {loading ? (
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500">
+              Đang tải...
+            </div>
+          ) : null}
 
           <AdjustmentFilters
             tab={tab}
@@ -367,7 +353,6 @@ export default function AdjustmentsPage() {
             </div>
           )}
         </main>
-      </div>
 
       <AdjustmentFormModal
         key={editing?.id ?? "new"}
@@ -414,6 +399,6 @@ export default function AdjustmentsPage() {
           {toast}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

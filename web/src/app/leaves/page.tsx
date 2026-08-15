@@ -2,9 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { LeaveFormModal } from "@/components/leaves/LeaveFormModal";
 import { LeaveStatsCards } from "@/components/leaves/LeaveStatsCards";
 import { LeaveTable } from "@/components/leaves/LeaveTable";
@@ -24,9 +21,6 @@ const emptyStats: LeaveStats = {
 };
 
 export default function LeavesPage() {
-  const { shell, headerData } = useAdminChrome(
-    "Duyệt và quản lý đơn nghỉ phép của nhân viên",
-  );
   const [rows, setRows] = useState<LeaveRequest[]>([]);
   const [stats, setStats] = useState<LeaveStats>(emptyStats);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -95,24 +89,8 @@ export default function LeavesPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Nghỉ phép" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Duyệt và quản lý đơn nghỉ phép của nhân viên"
-        />
-
+    <>
         <main className="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -144,7 +122,7 @@ export default function LeavesPage() {
             search={search}
             status={status}
             type={type}
-            loading={listLoading}
+            loading={loading || listLoading}
             busyId={busyId}
             onSearchChange={setSearch}
             onStatusChange={setStatus}
@@ -153,7 +131,6 @@ export default function LeavesPage() {
             onReject={(row) => void review(row.id, "rejected")}
           />
         </main>
-      </div>
 
       <LeaveFormModal
         open={modalOpen}
@@ -161,6 +138,6 @@ export default function LeavesPage() {
         onClose={() => setModalOpen(false)}
         onSaved={() => void loadList()}
       />
-    </div>
+    </>
   );
 }

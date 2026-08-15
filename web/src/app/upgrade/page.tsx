@@ -9,9 +9,6 @@ import {
   Sparkles,
   XCircle,
 } from "lucide-react";
-import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { PlanCard } from "@/components/billing/PlanCard";
 import { UpgradeFaq } from "@/components/billing/UpgradeFaq";
 import {
@@ -21,9 +18,6 @@ import {
 } from "@/lib/plans-api";
 
 export default function UpgradePage() {
-  const { shell, headerData } = useAdminChrome(
-    "Chọn gói phù hợp để mở khóa toàn bộ tính năng",
-  );
   const [catalog, setCatalog] = useState<PlansCatalog | null>(null);
   const [yearly, setYearly] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -59,24 +53,8 @@ export default function UpgradePage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Cài đặt" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Chọn gói phù hợp để mở khóa toàn bộ tính năng"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -130,6 +108,12 @@ export default function UpgradePage() {
           {error ? (
             <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
               {error}
+            </div>
+          ) : null}
+
+          {loading ? (
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-16 text-center text-sm text-slate-500">
+              Đang tải...
             </div>
           ) : null}
 
@@ -216,7 +200,6 @@ export default function UpgradePage() {
             <UpgradeFaq />
           </div>
         </main>
-      </div>
 
       {toast ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
@@ -225,6 +208,6 @@ export default function UpgradePage() {
           </span>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

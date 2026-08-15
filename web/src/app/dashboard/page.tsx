@@ -2,17 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AttendanceTable } from "@/components/dashboard/AttendanceTable";
-import { Header } from "@/components/dashboard/Header";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { LeaveInbox } from "@/components/dashboard/LeaveInbox";
 import { PerformanceCard } from "@/components/dashboard/PerformanceCard";
 import dynamic from "next/dynamic";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import {
   Notifications,
   UpcomingShifts,
 } from "@/components/dashboard/SideWidgets";
-import { useAdminShell } from "@/components/admin/AdminShell";
 import { fetchDashboard } from "@/lib/api";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { DashboardData } from "@/types/dashboard";
@@ -44,7 +41,6 @@ const PersonnelCosts = dynamic(
 );
 
 export default function DashboardPage() {
-  const { shell } = useAdminShell();
   const [data, setData] = useState<DashboardData | null>(null);
 
   useEffect(() => {
@@ -69,23 +65,15 @@ export default function DashboardPage() {
     void reload();
   }, 15_000, data !== null);
 
-  const chrome = data ?? shell;
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={chrome.tenant} active="Tổng quan" access={chrome.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header data={chrome} />
-
-        <main className="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">
-          {!data ? (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-16 text-center text-sm text-slate-500">
-              Đang tải tổng quan...
-            </div>
-          ) : null}
-          {data ? (
-            <>
+    <main className="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">
+      {!data ? (
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-16 text-center text-sm text-slate-500">
+          Đang tải tổng quan...
+        </div>
+      ) : null}
+      {data ? (
+        <>
           <LeaveInbox
             items={data.pending_leaves ?? []}
             onChanged={() => void reload()}
@@ -110,10 +98,8 @@ export default function DashboardPage() {
               <Notifications items={data.notifications} />
             </div>
           </div>
-            </>
-          ) : null}
-        </main>
-      </div>
-    </div>
+        </>
+      ) : null}
+    </main>
   );
 }

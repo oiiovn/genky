@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { AssignShiftModal } from "@/components/schedule/AssignShiftModal";
 import { ScheduleSidePanel } from "@/components/schedule/ScheduleSidePanel";
 import {
@@ -33,9 +31,7 @@ import { nowInAppTz, todayIso } from "@/lib/timezone";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export default function SchedulePage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quản lý lịch làm việc của nhân viên",
-  );
+  const { branches } = useAdminChrome();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<ScheduleAssignment[]>([]);
@@ -295,15 +291,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Lịch làm việc" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý lịch làm việc của nhân viên"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <ScheduleToolbar
             view={view}
@@ -435,7 +423,6 @@ export default function SchedulePage() {
             />
           </div>
         </main>
-      </div>
 
       <AssignShiftModal
         key={`${assignEmployee?.id ?? "x"}-${assignDate ?? "d"}`}
@@ -484,6 +471,6 @@ export default function SchedulePage() {
           {toast}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

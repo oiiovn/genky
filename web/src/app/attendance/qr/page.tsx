@@ -4,8 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Lock, ShieldCheck } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { QrSettingsPanel } from "@/components/attendance/QrSettingsPanel";
 import { QrSideInfo } from "@/components/attendance/QrSideInfo";
 import {
@@ -30,9 +28,7 @@ const QrCodePanel = dynamic(
 );
 
 export default function AttendanceQrPage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quét QR để chấm công Check-in / Check-out",
-  );
+  const { branches } = useAdminChrome();
   const [settings, setSettings] = useState<QrSettings | null>(null);
   const [draft, setDraft] = useState<QrSettings | null>(null);
   const [qrValue, setQrValue] = useState<string | null>(null);
@@ -191,24 +187,8 @@ export default function AttendanceQrPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="QR chấm công" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quét QR để chấm công Check-in / Check-out"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -288,7 +268,7 @@ export default function AttendanceQrPage() {
                 />
               ) : (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-400 shadow-sm">
-                  Đang tải cài đặt...
+                  {loading ? "Đang tải..." : "Đang tải cài đặt..."}
                 </div>
               )}
 
@@ -309,7 +289,6 @@ export default function AttendanceQrPage() {
             </div>
           </div>
         </main>
-      </div>
 
       {toast ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
@@ -318,6 +297,6 @@ export default function AttendanceQrPage() {
           </span>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

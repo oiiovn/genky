@@ -9,8 +9,6 @@ import {
   Settings2,
 } from "lucide-react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TimesheetSidePanel } from "@/components/timesheet/TimesheetSidePanel";
 import { TimesheetStatsCards } from "@/components/timesheet/TimesheetStatsCards";
 import {
@@ -44,9 +42,7 @@ const emptyStats: TimesheetStats = {
 };
 
 export default function TimesheetPage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quản lý bảng công và tổng hợp giờ làm của nhân viên",
-  );
+  const { branches } = useAdminChrome();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
@@ -169,24 +165,8 @@ export default function TimesheetPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Bảng công" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý bảng công và tổng hợp giờ làm của nhân viên"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -294,7 +274,7 @@ export default function TimesheetPage() {
                 lastPage={lastPage}
                 perPage={perPage}
                 selectedIds={selectedIds}
-                loading={listLoading}
+                loading={loading || listLoading}
                 tab={tab}
                 search={search}
                 branchFilter={branchFilter}
@@ -395,13 +375,12 @@ export default function TimesheetPage() {
             />
           </div>
         </main>
-      </div>
 
       {toast ? (
         <div className="fixed right-5 bottom-5 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
           {toast}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

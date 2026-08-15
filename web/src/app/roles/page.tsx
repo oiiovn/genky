@@ -2,9 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BookOpen, Plus } from "lucide-react";
-import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { RoleDetailPanel } from "@/components/roles/RoleDetailPanel";
 import { RoleFormModal } from "@/components/roles/RoleFormModal";
 import { RolesListPanel } from "@/components/roles/RolesListPanel";
@@ -39,9 +36,6 @@ function mapRole(role: ApiRole): RoleItem {
 }
 
 export default function RolesPage() {
-  const { shell, headerData } = useAdminChrome(
-    "Quản lý vai trò và quyền hạn trong hệ thống",
-  );
   const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -189,24 +183,8 @@ export default function RolesPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Vai trò & Quyền" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý vai trò và quyền hạn trong hệ thống"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -238,6 +216,12 @@ export default function RolesPage() {
               </button>
             </div>
           </div>
+
+          {loading ? (
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-16 text-center text-sm text-slate-500">
+              Đang tải...
+            </div>
+          ) : null}
 
           {error ? (
             <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
@@ -276,7 +260,6 @@ export default function RolesPage() {
             )}
           </div>
         </main>
-      </div>
 
       <RoleFormModal
         open={formOpen}
@@ -284,6 +267,6 @@ export default function RolesPage() {
         onClose={() => setFormOpen(false)}
         onSubmit={saveRoleInfo}
       />
-    </div>
+    </>
   );
 }

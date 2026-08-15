@@ -10,8 +10,6 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { PayrollStatsCards } from "@/components/payroll/PayrollStatsCards";
 import {
   PayrollTable,
@@ -56,9 +54,7 @@ const emptyStats: PayrollStats = {
 };
 
 export default function PayrollPage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quản lý lương và thanh toán cho nhân viên",
-  );
+  const { branches } = useAdminChrome();
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -192,15 +188,7 @@ export default function PayrollPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Lương" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý lương và thanh toán cho nhân viên"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -368,7 +356,6 @@ export default function PayrollPage() {
             />
           </div>
         </main>
-      </div>
 
       {payOpen ? (
         <PayrollPayModal
@@ -391,6 +378,6 @@ export default function PayrollPage() {
           {toast}
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

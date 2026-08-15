@@ -8,8 +8,6 @@ import {
   Upload,
 } from "lucide-react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
-import { Header } from "@/components/dashboard/Header";
-import { Sidebar } from "@/components/dashboard/Sidebar";
 import { EmployeeFilterPanel, type FilterDraft } from "@/components/employees/EmployeeFilterPanel";
 import { EmployeeFormModal } from "@/components/employees/EmployeeFormModal";
 import { EmployeeStatsCards } from "@/components/employees/EmployeeStatsCards";
@@ -35,9 +33,7 @@ const emptyFilters: FilterDraft = {
 };
 
 export default function EmployeesPage() {
-  const { shell, branches, headerData } = useAdminChrome(
-    "Quản lý nhân sự và thông tin nhân viên",
-  );
+  const { branches } = useAdminChrome();
   const [positions, setPositions] = useState<Position[]>([]);
   const [rows, setRows] = useState<Employee[]>([]);
   const [total, setTotal] = useState(0);
@@ -161,24 +157,8 @@ export default function EmployeesPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen bg-[#F3F4F6]">
-      <Sidebar tenant={shell.tenant} active="Nhân viên" access={shell.access} />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          data={headerData}
-          subtitle="Quản lý nhân sự và thông tin nhân viên"
-        />
-
+    <>
         <main className="flex-1 overflow-y-auto p-5 lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -233,7 +213,7 @@ export default function EmployeesPage() {
                 page={page}
                 lastPage={lastPage}
                 search={tableSearch}
-                loading={listLoading}
+                loading={loading || listLoading}
                 onSearchChange={setTableSearch}
                 onSearchSubmit={() => {
                   const next = { ...applied, search: tableSearch };
@@ -298,7 +278,6 @@ export default function EmployeesPage() {
             />
           </div>
         </main>
-      </div>
 
       {modalOpen && (
         <EmployeeFormModal
@@ -367,6 +346,6 @@ export default function EmployeesPage() {
           </span>
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import {
   Award,
@@ -72,6 +73,32 @@ const NAV_GROUPS: NavGroup[] = [
     items: [{ label: "Cài đặt", icon: Settings, href: "/settings/general" }],
   },
 ];
+
+function activeFromPathname(pathname: string, fallback?: string): string {
+  const items = NAV_GROUPS.flatMap((group) => group.items).filter(
+    (item) => item.href !== "#",
+  );
+
+  const exact = items.find((item) => pathname === item.href);
+  if (exact) return exact.label;
+
+  const prefixMatch = items
+    .filter((item) => pathname.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (prefixMatch) return prefixMatch.label;
+
+  if (pathname === "/upgrade" || pathname.startsWith("/upgrade/")) {
+    return "Cài đặt";
+  }
+  if (pathname === "/roles" || pathname.startsWith("/roles/")) {
+    return "Vai trò & Quyền";
+  }
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return "Cài đặt";
+  }
+
+  return fallback ?? "Tổng quan";
+}
 
 function InstantTip({
   label,
@@ -184,12 +211,14 @@ function GroupItems({
 
 export function Sidebar({
   tenant,
-  active = "Tổng quan",
+  active: activeProp,
 }: {
   tenant: ShellData["tenant"];
   active?: string;
   access?: unknown;
 }) {
+  const pathname = usePathname();
+  const active = activeFromPathname(pathname, activeProp);
   const appearance = useAppearance();
   const collapsed = appearance.sidebar === "collapsed";
   const [manual, setManual] = useState<{

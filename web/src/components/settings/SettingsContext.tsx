@@ -150,9 +150,7 @@ export function SettingsShell({ children }: { children: ReactNode }) {
 
   if (loading || !shell || !headerData) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
+      <div className="p-5 text-sm text-slate-500 lg:p-6">Đang tải...</div>
     );
   }
 
