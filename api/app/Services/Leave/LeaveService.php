@@ -160,6 +160,7 @@ class LeaveService
             ]);
 
             if ($autoApprove) {
+                $this->cancelAssignmentsInLeaveRange($created);
                 $this->applyToAttendance($created);
             }
 
@@ -208,6 +209,7 @@ class LeaveService
             ])->save();
 
             if ($status === LeaveRequest::STATUS_APPROVED) {
+                $this->cancelAssignmentsInLeaveRange($leave);
                 $this->applyToAttendance($leave);
             }
 
@@ -235,6 +237,19 @@ class LeaveService
                 'from' => ['Khoảng ngày này đã trùng với đơn nghỉ khác.'],
             ]);
         }
+    }
+
+    protected function cancelAssignmentsInLeaveRange(LeaveRequest $leave): void
+    {
+        ShiftAssignment::query()
+            ->where('employee_id', $leave->employee_id)
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->whereDate('date', '>=', $leave->starts_on->toDateString())
+            ->whereDate('date', '<=', $leave->ends_on->toDateString())
+            ->update([
+                'status' => ShiftAssignment::STATUS_CANCELLED,
+                'updated_at' => now(),
+            ]);
     }
 
     protected function applyToAttendance(LeaveRequest $leave): void

@@ -508,6 +508,10 @@ export default function SchedulePage() {
                 loading={!catalogReady && rows.length === 0}
                 refreshing={refreshing}
                 onCellClick={(employee, dayIso) => {
+                  if (dayIso < todayIso()) {
+                    showToast("Không xếp ca cho ngày trong quá khứ.");
+                    return;
+                  }
                   setAssignEmployee(employee);
                   setAssignDate(dayIso);
                   setAssignError(null);
@@ -655,6 +659,10 @@ export default function SchedulePage() {
           }}
           onConfirmAdd={() => {
             if (!dayEmployeeId || !dayPanelDate) return;
+            if (dayPanelDate < todayIso()) {
+              showToast("Không xếp ca cho ngày trong quá khứ.");
+              return;
+            }
             const employee = employees.find((e) => e.id === dayEmployeeId);
             if (!employee) return;
             setAssignEmployee(employee);

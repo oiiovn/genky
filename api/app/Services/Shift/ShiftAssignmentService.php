@@ -4,10 +4,12 @@ namespace App\Services\Shift;
 
 use App\Models\Branch;
 use App\Models\Employee;
+use App\Models\LeaveRequest;
 use App\Models\Shift;
 use App\Models\ShiftAssignment;
 use App\Support\Authorization\ShiftPermission;
 use App\Support\Tenancy\TenantContext;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -67,6 +69,11 @@ class ShiftAssignmentService
         $branch = Branch::query()->findOrFail($branchId);
         $shift = Shift::query()->findOrFail((int) $data['shift_id']);
         $employee = Employee::query()->findOrFail((int) $data['employee_id']);
+        $date = Carbon::parse((string) $data['date'], config('app.timezone'))
+            ->startOfDay();
+
+        $this->assertNotInPast($date);
+        $this->assertNotOnApprovedLeave((int) $employee->id, $date);
 
         if ($shift->status !== Shift::STATUS_ACTIVE) {
             throw ValidationException::withMessages([
@@ -91,7 +98,7 @@ class ShiftAssignmentService
             ->where('employee_id', $employee->id)
             ->where('shift_id', $shift->id)
             ->where('branch_id', $branch->id)
-            ->whereDate('date', $data['date'])
+            ->whereDate('date', $date->toDateString())
             ->where('status', ShiftAssignment::STATUS_ASSIGNED)
             ->exists();
 
@@ -106,7 +113,7 @@ class ShiftAssignmentService
             'employee_id' => $employee->id,
             'shift_id' => $shift->id,
             'branch_id' => $branch->id,
-            'date' => $data['date'],
+            'date' => $date->toDateString(),
             'status' => ShiftAssignment::STATUS_ASSIGNED,
             'note' => $data['note'] ?? null,
         ])->load(['employee', 'shift', 'branch']);
@@ -166,5 +173,31 @@ class ShiftAssignmentService
                 'name' => $assignment->branch->name,
             ] : null,
         ];
+    }
+
+    protected function assertNotInPast(Carbon $date): void
+    {
+        $today = Carbon::now(config('app.timezone'))->startOfDay();
+        if ($date->lt($today)) {
+            throw ValidationException::withMessages([
+                'date' => ['Không xếp ca cho ngày trong quá khứ.'],
+            ]);
+        }
+    }
+
+    protected function assertNotOnApprovedLeave(int $employeeId, Carbon $date): void
+    {
+        $onLeave = LeaveRequest::query()
+            ->where('employee_id', $employeeId)
+            ->where('status', LeaveRequest::STATUS_APPROVED)
+            ->whereDate('starts_on', '<=', $date->toDateString())
+            ->whereDate('ends_on', '>=', $date->toDateString())
+            ->exists();
+
+        if ($onLeave) {
+            throw ValidationException::withMessages([
+                'date' => ['Nhân viên đang nghỉ phép đã duyệt trong ngày này, không xếp ca được.'],
+            ]);
+        }
     }
 }

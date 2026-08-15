@@ -216,6 +216,74 @@ class ShiftModuleTest extends TestCase
         ]);
     }
 
+    public function test_cannot_assign_in_the_past(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Trần Quá Khứ',
+            'email' => 'past-shift@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $shiftId = $this->withToken($ctx['token'])
+            ->getJson('/api/shifts?search=Ca sáng')
+            ->assertOk()
+            ->json('data.0.id');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $shiftId,
+            'branch_id' => $ctx['branch_id'],
+            'date' => now()->subDay()->toDateString(),
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['date']);
+    }
+
+    public function test_cannot_assign_on_approved_leave_day(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Lê Nghỉ Phép',
+            'email' => 'leave-shift@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $leaveDay = now()->addDay()->toDateString();
+
+        $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $employee['id'],
+            'type' => 'annual',
+            'from' => $leaveDay,
+            'to' => $leaveDay,
+            'reason' => 'Nghỉ phép test',
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+
+        $shiftId = $this->withToken($ctx['token'])
+            ->getJson('/api/shifts?search=Ca sáng')
+            ->assertOk()
+            ->json('data.0.id');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $shiftId,
+            'branch_id' => $ctx['branch_id'],
+            'date' => $leaveDay,
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['date']);
+    }
+
     public function test_import_and_export_csv(): void
     {
         $ctx = $this->seedOwnerWithBranch();
