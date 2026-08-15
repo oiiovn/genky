@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -225,6 +225,12 @@ export function Sidebar({
     active: string;
     open: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    // Reset override khi đổi trang; Sidebar persistent nên không remount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setManual(null);
+  }, [active]);
 
   function toggleGroup(childActive: boolean) {
     const current = manual?.active === active ? manual.open : childActive;
