@@ -245,7 +245,8 @@ class MonthlyWorkSummaryService
         }
 
         $leaveDays = $leaveLogs->count();
-        $payrollTotal = $workedMinutes + $paidLeaveMinutes;
+        // Payroll "total" = actual worked only; leave minutes stay in dedicated columns.
+        $payrollTotal = $workedMinutes;
         $workDates = $workedLogs
             ->map(fn (AttendanceLog $log) => $log->work_date?->toDateString())
             ->filter()

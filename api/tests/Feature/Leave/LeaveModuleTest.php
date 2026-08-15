@@ -113,7 +113,7 @@ class LeaveModuleTest extends TestCase
             ->assertJsonValidationErrors(['employee_id']);
     }
 
-    public function test_unpaid_leave_deducts_payroll_and_paid_leave_credits_hours(): void
+    public function test_unpaid_leave_deducts_payroll_and_paid_leave_does_not_create_income(): void
     {
         $ctx = $this->seedOwnerWithBranch();
         $year = (int) now()->year;
@@ -173,14 +173,17 @@ class LeaveModuleTest extends TestCase
         $this->assertSame(2, $unpaidRow['unpaid_days']);
         $this->assertSame(2, $unpaidRow['leave_days']);
         $this->assertSame((int) round(7800000 / 26) * 2, $unpaidRow['deductions']);
+        $this->assertSame(0, $unpaidRow['income']);
         $this->assertSame(0, $unpaidRow['net']);
+        $this->assertSame(0, $unpaidRow['total_minutes']);
 
         $this->assertNotNull($paidRow);
         $this->assertSame(0, $paidRow['unpaid_days']);
         $this->assertSame(2, $paidRow['paid_leave_days']);
         $this->assertSame(0, $paidRow['deductions']);
-        $this->assertGreaterThan(0, $paidRow['income']);
-        $this->assertGreaterThan(0, $paidRow['total_minutes']);
+        $this->assertSame(0, $paidRow['income']);
+        $this->assertSame(0, $paidRow['net']);
+        $this->assertSame(0, $paidRow['total_minutes']);
 
         $this->app['auth']->forgetGuards();
 

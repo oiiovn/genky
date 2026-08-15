@@ -286,7 +286,7 @@ class PlannedVsActualWorkTest extends TestCase
         $this->assertSame(0, $summary->payroll_assignment_minutes);
     }
 
-    public function test_paid_leave_without_attendance_is_not_fake_work(): void
+    public function test_paid_leave_without_attendance_does_not_create_income(): void
     {
         $ctx = $this->seedOwnerWithBranch();
         $year = (int) now()->year;
@@ -314,15 +314,94 @@ class PlannedVsActualWorkTest extends TestCase
         $pay = $this->payrollRow($ctx['token'], $employee['id'], $year, $month);
         $this->assertSame(1, $pay['row']['paid_leave_days']);
         $this->assertSame(0, $pay['row']['unpaid_days']);
-        $this->assertGreaterThan(0, $pay['row']['income']);
-        $this->assertGreaterThan(0, $pay['row']['total_minutes']);
-        $this->assertSame($pay['row']['income'], $pay['list']['stats']['income']);
+        $this->assertSame(0, $pay['row']['income']);
+        $this->assertSame(0, $pay['row']['net']);
+        $this->assertSame(0, $pay['row']['total_minutes']);
+        $this->assertSame(0, $pay['list']['stats']['income']);
 
         $summary = $this->summary($employee['id'], $year, $month);
         $this->assertSame(0, $summary->work_minutes);
         $this->assertSame(0, $summary->payroll_worked_minutes);
+        $this->assertSame(0, $summary->payroll_total_minutes);
         $this->assertSame(0, $summary->payroll_assignment_minutes);
         $this->assertSame(480, $summary->payroll_paid_leave_minutes);
+    }
+
+    public function test_assignment_plus_leave_without_attendance_is_zero_income(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $date = now()->toDateString();
+
+        $employee = $this->createEmployee($ctx['token'], $ctx['branch_id'], 'pva-al@fresh.test');
+        $shift = $this->createEightHourShift($ctx['token'], $ctx['branch_id'], 'CAL');
+        $this->assignShift($ctx['token'], $employee['id'], $shift['id'], $ctx['branch_id'], $date);
+
+        $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $employee['id'],
+            'type' => LeaveRequest::TYPE_SICK,
+            'from' => $date,
+            'to' => $date,
+            'reason' => 'Ốm',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $pay = $this->payrollRow($ctx['token'], $employee['id'], $year, $month);
+        $this->assertSame(0, $pay['row']['income']);
+        $this->assertSame(0, $pay['row']['net']);
+        $this->assertSame(0, $pay['row']['total_minutes']);
+        $this->assertGreaterThan(0, $pay['row']['paid_leave_days']);
+
+        $summary = $this->summary($employee['id'], $year, $month);
+        $this->assertSame(0, $summary->payroll_worked_minutes);
+        $this->assertSame(0, $summary->payroll_total_minutes);
+        $this->assertSame(0, $summary->payroll_assignment_minutes);
+        $this->assertGreaterThan(0, $summary->payroll_paid_leave_minutes);
+    }
+
+    public function test_attendance_plus_unpaid_leave_income_from_work_only(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $workDate = now()->startOfMonth()->toDateString();
+        $leaveDate = now()->startOfMonth()->addDay()->toDateString();
+
+        $employee = $this->createEmployee(
+            $ctx['token'],
+            $ctx['branch_id'],
+            'pva-au@fresh.test',
+            'monthly',
+            7800000,
+        );
+
+        $this->checkInOut($ctx['token'], $employee['id'], $ctx['branch_id'], $workDate, '08:00', '16:00');
+
+        $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $employee['id'],
+            'type' => LeaveRequest::TYPE_UNPAID,
+            'from' => $leaveDate,
+            'to' => $leaveDate,
+            'reason' => 'Nghỉ không lương 1 ngày',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $pay = $this->payrollRow($ctx['token'], $employee['id'], $year, $month);
+        $expectedIncome = (int) round(min(7800000 * 1.2, (7800000 / 176) * 8));
+        $expectedDeduction = (int) round(7800000 / 26);
+
+        $this->assertSame(480, $pay['row']['total_minutes']);
+        $this->assertSame(1, $pay['row']['unpaid_days']);
+        $this->assertSame($expectedIncome, $pay['row']['income']);
+        $this->assertSame($expectedDeduction, $pay['row']['deductions']);
+        $this->assertSame(max(0, $expectedIncome - $expectedDeduction), $pay['row']['net']);
+
+        $summary = $this->summary($employee['id'], $year, $month);
+        $this->assertSame(480, $summary->payroll_worked_minutes);
+        $this->assertSame(480, $summary->payroll_total_minutes);
+        $this->assertSame(0, $summary->payroll_paid_leave_minutes);
+        $this->assertGreaterThan(0, $summary->payroll_unpaid_leave_minutes);
     }
 
     public function test_monthly_zero_work_and_zero_leave_is_not_half_salary(): void

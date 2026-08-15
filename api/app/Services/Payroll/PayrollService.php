@@ -894,12 +894,11 @@ class PayrollService
         $search = trim((string) ($filters['search'] ?? ''));
         $orgId = TenantContext::id();
 
+        // Income minutes = actual attendance only (never leave / assignment).
         $worked = 'coalesce(mws.payroll_worked_minutes, 0)';
-        $paidLeaveM = 'coalesce(mws.payroll_paid_leave_minutes, 0)';
-        $unpaidLeaveM = 'coalesce(mws.payroll_unpaid_leave_minutes, 0)';
         $unpaidDays = 'coalesce(mws.payroll_unpaid_days, 0)';
         $amount = 'coalesce(employees.salary_amount, 0)';
-        $incomeMinutes = "case when employees.salary_type = 'hourly' then {$worked} + {$paidLeaveM} else {$worked} + {$paidLeaveM} + {$unpaidLeaveM} end";
+        $incomeMinutes = $worked;
         $hours = "({$incomeMinutes}) / 60.0";
         $monthlyCap = "{$amount} * 1.2";
         $hourlyFromMonthly = "({$amount} / 176.0) * ({$hours})";
@@ -907,11 +906,10 @@ class PayrollService
         $rawIncome = "case when ({$incomeMinutes}) <= 0 then 0 when employees.salary_type = 'hourly' then {$amount} * ({$hours}) else {$cappedMonthly} end";
         $dailyRate = "case when employees.salary_type = 'hourly' then {$amount} * 8 else {$amount} / 26.0 end";
         $rawDeductions = "({$unpaidDays}) * ({$dailyRate})";
-        $zeroed = "{$worked} <= 0 and {$paidLeaveM} <= 0 and {$unpaidDays} > 0";
         $frozen = "pe.status in ('paid', 'partial') and coalesce(pe.net, 0) > 0";
-        $income = "case when {$frozen} then pe.income when {$zeroed} then 0 else {$rawIncome} end";
+        $income = "case when {$frozen} then pe.income else {$rawIncome} end";
         $deductions = "case when {$frozen} then pe.deductions else {$rawDeductions} end";
-        $net = "case when {$frozen} then pe.net when {$zeroed} then 0 else case when ({$rawIncome}) - ({$rawDeductions}) > 0 then ({$rawIncome}) - ({$rawDeductions}) else 0 end end";
+        $net = "case when {$frozen} then pe.net else case when ({$rawIncome}) - ({$rawDeductions}) > 0 then ({$rawIncome}) - ({$rawDeductions}) else 0 end end";
         $paidAmount = 'coalesce(pe.paid_amount, 0)';
         $remaining = "case when ({$net}) - ({$paidAmount}) > 0 then ({$net}) - ({$paidAmount}) else 0 end";
         $rowStatus = "case when ({$remaining}) <= 0 and ({$net}) > 0 then 'paid' when ({$paidAmount}) > 0 and ({$remaining}) > 0 then 'partial' else coalesce(pe.status, 'pending') end";
@@ -992,12 +990,11 @@ class PayrollService
         ?PayrollEntry $entry,
     ): array {
         $workedMinutes = (int) ($summary?->payroll_worked_minutes ?? 0);
-        $paidLeaveMinutes = (int) ($summary?->payroll_paid_leave_minutes ?? 0);
-        $unpaidLeaveMinutes = (int) ($summary?->payroll_unpaid_leave_minutes ?? 0);
         $leaveDays = (int) ($summary?->payroll_leave_days ?? 0);
         $paidLeaveDays = (int) ($summary?->payroll_paid_leave_days ?? 0);
         $unpaidDays = (int) ($summary?->payroll_unpaid_days ?? 0);
-        $totalMinutes = (int) ($summary?->payroll_total_minutes ?? 0);
+        // Payroll actual minutes = attendance only (leave/assignment never count as income time).
+        $totalMinutes = $workedMinutes;
 
         $frozen = $entry && in_array($entry->status, [
             PayrollEntry::STATUS_PAID,
@@ -1012,21 +1009,10 @@ class PayrollService
                 $totalMinutes = (int) $entry->total_minutes;
             }
         } else {
-            $incomeMinutes = $workedMinutes + $paidLeaveMinutes;
-            if ($employee->salary_type !== 'hourly') {
-                $incomeMinutes += $unpaidLeaveMinutes;
-            }
-
-            $income = $this->incomeFromHours($employee, $incomeMinutes);
+            $income = $this->incomeFromHours($employee, $workedMinutes);
             $dailyRate = $this->dailyRate($employee);
             $deductions = $unpaidDays * $dailyRate;
-
-            if ($workedMinutes <= 0 && $paidLeaveMinutes <= 0 && $unpaidDays > 0) {
-                $income = 0;
-                $net = 0;
-            } else {
-                $net = max(0, $income - $deductions);
-            }
+            $net = max(0, $income - $deductions);
         }
 
         $paidAmount = (int) ($entry?->paid_amount ?? 0);
