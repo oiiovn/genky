@@ -1,4 +1,4 @@
-import type { DashboardData } from "@/types/dashboard";
+import type { DashboardData, ShellData } from "@/types/dashboard";
 import { apiUrl, describeFetchError } from "@/lib/api-base";
 
 export type AuthUser = {
@@ -143,6 +143,30 @@ export type Branch = {
   is_headquarters: boolean;
 };
 
+export function branchesFromShell(
+  shell: {
+    branches?: Array<{
+      id: number;
+      name: string;
+      is_headquarters?: boolean;
+      address?: string | null;
+    }>;
+  } | null | undefined,
+): Branch[] {
+  return (shell?.branches ?? []).map((branch) => ({
+    id: branch.id,
+    organization_id: 0,
+    name: branch.name,
+    phone: null,
+    address: branch.address ?? null,
+    latitude: null,
+    longitude: null,
+    check_in_radius_meters: 100,
+    is_active: true,
+    is_headquarters: Boolean(branch.is_headquarters),
+  }));
+}
+
 export type OnboardingStatus = SetupInfo & {
   organization_id: number;
   organization: AuthOrganization;
@@ -151,6 +175,18 @@ export type OnboardingStatus = SetupInfo & {
 
 const ACCESS_KEY = "genky_access_token";
 const REFRESH_KEY = "genky_refresh_token";
+
+let cachedMe: { token: string; value: MeResponse } | null = null;
+let meInFlight: { token: string; promise: Promise<MeResponse> } | null = null;
+let cachedShell: { token: string; value: ShellData } | null = null;
+let shellInFlight: { token: string; promise: Promise<ShellData> } | null = null;
+
+function resetMeCache(): void {
+  cachedMe = null;
+  meInFlight = null;
+  cachedShell = null;
+  shellInFlight = null;
+}
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -163,11 +199,13 @@ export function getRefreshToken(): string | null {
 }
 
 export function saveTokens(access: string, refresh: string) {
+  if (getAccessToken() !== access) resetMeCache();
   localStorage.setItem(ACCESS_KEY, access);
   localStorage.setItem(REFRESH_KEY, refresh);
 }
 
 export function clearTokens() {
+  resetMeCache();
   localStorage.removeItem(ACCESS_KEY);
   localStorage.removeItem(REFRESH_KEY);
 }
@@ -315,9 +353,30 @@ export async function me(): Promise<MeResponse> {
   const access = getAccessToken();
   if (!access) throw new Error("Chưa đăng nhập.");
 
-  const res = await authFetch(`${apiUrl()}/me`);
-  if (!res.ok) throw new Error(await parseError(res));
-  return res.json();
+  if (cachedMe?.token === access) return cachedMe.value;
+  if (meInFlight?.token === access) return meInFlight.promise;
+
+  const promise = (async () => {
+    const res = await authFetch(`${apiUrl()}/me`);
+    if (!res.ok) throw new Error(await parseError(res));
+
+    const value = (await res.json()) as MeResponse;
+    const currentToken = getAccessToken();
+    if (currentToken) cachedMe = { token: currentToken, value };
+    return value;
+  })();
+
+  meInFlight = { token: access, promise };
+  try {
+    return await promise;
+  } finally {
+    if (meInFlight?.promise === promise) meInFlight = null;
+  }
+}
+
+export async function refreshMe(): Promise<MeResponse> {
+  resetMeCache();
+  return me();
 }
 
 export async function updateProfile(payload: {
@@ -331,6 +390,7 @@ export async function updateProfile(payload: {
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
+  resetMeCache();
   return json.user as AuthUser;
 }
 
@@ -467,10 +527,13 @@ export async function setupFirstBranch(payload: {
   return res.json();
 }
 
-export async function resolvePostAuthPath(): Promise<string> {
+export async function resolvePostAuthPath(role?: string | null): Promise<string> {
   const status = await getOnboardingStatus();
   if (status.next_step === "organization") return "/onboarding";
   if (status.next_step === "branch") return "/onboarding/branch";
+  if (role === "employee") return "/m";
+  if (role) return "/dashboard";
+
   try {
     const profile = await me();
     if (
@@ -483,6 +546,36 @@ export async function resolvePostAuthPath(): Promise<string> {
     /* fall through */
   }
   return "/dashboard";
+}
+
+export async function fetchShell(): Promise<ShellData> {
+  const access = getAccessToken();
+  if (!access) throw new Error("Chưa đăng nhập.");
+
+  if (cachedShell?.token === access) return cachedShell.value;
+  if (shellInFlight?.token === access) return shellInFlight.promise;
+
+  const promise = (async () => {
+    const res = await authFetch(`${apiUrl()}/shell`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await parseError(res));
+    const value = (await res.json()) as ShellData;
+    const currentToken = getAccessToken();
+    if (currentToken) cachedShell = { token: currentToken, value };
+    return value;
+  })();
+
+  shellInFlight = { token: access, promise };
+  try {
+    return await promise;
+  } finally {
+    if (shellInFlight?.promise === promise) shellInFlight = null;
+  }
+}
+
+export async function refreshShell(): Promise<ShellData> {
+  cachedShell = null;
+  shellInFlight = null;
+  return fetchShell();
 }
 
 export async function fetchDashboard(): Promise<DashboardData> {

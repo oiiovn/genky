@@ -23,7 +23,51 @@ class DashboardController extends Controller
     ) {
     }
 
+    public function shell(Request $request): JsonResponse
+    {
+        return response()->json($this->chrome($request));
+    }
+
     public function overview(Request $request): JsonResponse
+    {
+        $chrome = $this->chrome($request);
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+        $today = $now->toDateString();
+
+        $totalEmployees = Employee::query()
+            ->where('status', Employee::STATUS_ACTIVE)
+            ->count();
+
+        $attendance = $this->safeAttendanceSnapshot($today);
+        $notifications = $this->buildNotifications(
+            $totalEmployees,
+            $attendance,
+            $chrome['branch']['name'] !== 'Chưa có chi nhánh'
+                ? preg_replace('/^Chi nhánh /', '', (string) $chrome['branch']['name'])
+                : null,
+            $chrome['pending_leaves'] ?? [],
+        );
+
+        return response()->json([
+            ...$chrome,
+            'notification_count' => count(array_filter(
+                $notifications,
+                fn ($n) => ($n['unread'] ?? false) === true,
+            )),
+            'notifications' => $notifications,
+            'kpis' => $this->buildKpis($totalEmployees, $attendance),
+            'attendance_today' => $attendance['rows'],
+            'salary_projection' => $this->salaryProjection($now, $totalEmployees),
+            'personnel_costs' => $this->mockPersonnelCosts($now),
+            'performance' => $this->buildPerformance($attendance),
+            'upcoming_shifts' => $this->upcomingShifts($today),
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function chrome(Request $request): array
     {
         $user = $request->user();
         $org = TenantContext::organization() ?? $user?->currentOrganization;
@@ -31,46 +75,24 @@ class DashboardController extends Controller
         $branches = Branch::query()
             ->orderByDesc('is_headquarters')
             ->orderBy('name')
-            ->get();
+            ->get(['id', 'name', 'is_headquarters', 'address']);
 
         $primaryBranch = $branches->firstWhere('is_headquarters', true) ?? $branches->first();
-
-        $employees = Employee::query()
-            ->with(['position', 'branches'])
-            ->where('status', Employee::STATUS_ACTIVE)
-            ->orderBy('full_name')
-            ->get();
-
-        $totalEmployees = $employees->count();
         $now = Carbon::now('Asia/Ho_Chi_Minh');
-        $today = $now->toDateString();
-
-        $attendance = $this->safeAttendanceSnapshot($today);
-        $attendanceToday = $attendance['rows'];
-        $kpis = $this->buildKpis($totalEmployees, $attendance);
-
         $weekdays = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-        $dateLabel = $weekdays[$now->dayOfWeek].', '.$now->format('d/m/Y');
 
         $access = $user
             ? \App\Support\Authorization\EffectivePermission::for($user)
             : null;
-        $role = $user?->roleIn($org);
-
         $pendingLeaves = $this->leaves->pendingForDashboard();
-        $notifications = $this->buildNotifications(
-            $totalEmployees,
-            $attendance,
-            $primaryBranch?->name,
-            $pendingLeaves,
-        );
+        $notifications = $this->shellNotifications($pendingLeaves);
 
-        return response()->json([
+        return [
             'greeting' => [
                 'name' => $user?->name ?? 'Admin',
                 'message' => 'Chúc bạn một ngày làm việc hiệu quả',
             ],
-            'role' => $role,
+            'role' => $user?->roleIn($org),
             'role_label' => $access?->roleLabel() ?? 'Thành viên',
             'access' => $access?->payload(),
             'tenant' => [
@@ -95,20 +117,41 @@ class DashboardController extends Controller
                 'is_headquarters' => $b->is_headquarters,
                 'address' => $b->address,
             ])->values()->all(),
-            'date' => $dateLabel,
+            'date' => $weekdays[$now->dayOfWeek].', '.$now->format('d/m/Y'),
             'notification_count' => count(array_filter(
                 $notifications,
                 fn ($n) => ($n['unread'] ?? false) === true,
             )),
-            'kpis' => $kpis,
-            'attendance_today' => $attendanceToday,
-            'salary_projection' => $this->salaryProjection($now, $totalEmployees),
-            'personnel_costs' => $this->mockPersonnelCosts($now),
-            'performance' => $this->buildPerformance($attendance),
-            'upcoming_shifts' => $this->upcomingShifts($today),
             'pending_leaves' => $pendingLeaves,
             'notifications' => $notifications,
-        ]);
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $pendingLeaves
+     * @return list<array<string, mixed>>
+     */
+    protected function shellNotifications(array $pendingLeaves): array
+    {
+        $items = [];
+
+        foreach ($pendingLeaves as $leave) {
+            $from = ! empty($leave['from']) ? Carbon::parse($leave['from'])->format('d/m/Y') : '';
+            $to = ! empty($leave['to']) ? Carbon::parse($leave['to'])->format('d/m/Y') : '';
+            $dateLabel = ($from && $to && $from !== $to) ? $from.' → '.$to : ($from ?: $to);
+
+            $items[] = [
+                'id' => 'leave-'.$leave['id'],
+                'type' => 'leave',
+                'title' => 'Đơn nghỉ chờ duyệt',
+                'message' => ($leave['full_name'] ?? 'Nhân viên').' xin nghỉ phép ngày '.$dateLabel,
+                'time' => $leave['time'] ?? 'Vừa xong',
+                'unread' => true,
+                'leave_id' => $leave['id'],
+            ];
+        }
+
+        return $items;
     }
 
     /**

@@ -255,16 +255,30 @@ class ShiftService
         ];
     }
 
-    public function payload(Shift $shift, ?string $forDate = null): array
+    /**
+     * @param  iterable<int, Shift>  $shifts
+     * @return list<array<string, mixed>>
+     */
+    public function payloads(iterable $shifts, ?string $forDate = null): array
     {
         $forDate ??= now()->toDateString();
+        $items = collect($shifts);
+        $counts = $this->employeeCountsByShift($items->pluck('id')->all(), $forDate);
 
-        $employeeCount = ShiftAssignment::query()
-            ->where('shift_id', $shift->id)
-            ->whereDate('date', $forDate)
-            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
-            ->distinct('employee_id')
-            ->count('employee_id');
+        return $items
+            ->map(fn (Shift $shift) => $this->payload(
+                $shift,
+                $forDate,
+                (int) ($counts[$shift->id] ?? 0),
+            ))
+            ->values()
+            ->all();
+    }
+
+    public function payload(Shift $shift, ?string $forDate = null, ?int $employeeCount = null): array
+    {
+        $forDate ??= now()->toDateString();
+        $employeeCount ??= (int) ($this->employeeCountsByShift([(int) $shift->id], $forDate)[$shift->id] ?? 0);
 
         $start = substr((string) $shift->start_time, 0, 5);
         $end = substr((string) $shift->end_time, 0, 5);
@@ -387,6 +401,29 @@ class ShiftService
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    /**
+     * @param  list<int>  $shiftIds
+     * @return array<int, int>
+     */
+    public function employeeCountsByShift(array $shiftIds, string $forDate): array
+    {
+        $shiftIds = array_values(array_unique(array_filter(array_map('intval', $shiftIds))));
+
+        if ($shiftIds === []) {
+            return [];
+        }
+
+        return ShiftAssignment::query()
+            ->whereIn('shift_id', $shiftIds)
+            ->whereDate('date', $forDate)
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->selectRaw('shift_id, count(distinct employee_id) as cnt')
+            ->groupBy('shift_id')
+            ->pluck('cnt', 'shift_id')
+            ->map(fn ($cnt) => (int) $cnt)
+            ->all();
     }
 
     protected function suggestCode(string $name): string

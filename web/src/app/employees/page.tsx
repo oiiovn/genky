@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
   Download,
   Plus,
   Upload,
 } from "lucide-react";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { EmployeeFilterPanel, type FilterDraft } from "@/components/employees/EmployeeFilterPanel";
@@ -17,17 +17,15 @@ import { EmployeeTable } from "@/components/employees/EmployeeTable";
 import { EmployeeViewModal } from "@/components/employees/EmployeeViewModal";
 import { InviteLinkModal } from "@/components/employees/InviteLinkModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { fetchBranches, fetchDashboard, getAccessToken, me } from "@/lib/api";
-import type { Branch } from "@/lib/api";
 import {
   deleteEmployee,
+  fetchEmployeeStats,
   fetchEmployees,
   fetchPositions,
   inviteEmployee,
   type Employee,
   type Position,
 } from "@/lib/employees-api";
-import type { DashboardData } from "@/types/dashboard";
 
 const emptyFilters: FilterDraft = {
   branch_id: "",
@@ -37,9 +35,9 @@ const emptyFilters: FilterDraft = {
 };
 
 export default function EmployeesPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý nhân sự và thông tin nhân viên",
+  );
   const [positions, setPositions] = useState<Position[]>([]);
   const [rows, setRows] = useState<Employee[]>([]);
   const [total, setTotal] = useState(0);
@@ -94,17 +92,12 @@ export default function EmployeesPage() {
 
   const loadStats = useCallback(async () => {
     try {
-      const [all, active, resigned, inactive] = await Promise.all([
-        fetchEmployees({ per_page: 1 }),
-        fetchEmployees({ status: "active", per_page: 1 }),
-        fetchEmployees({ status: "resigned", per_page: 1 }),
-        fetchEmployees({ status: "inactive", per_page: 1 }),
-      ]);
+      const data = await fetchEmployeeStats();
       setStats({
-        total: all.meta.total,
-        active: active.meta.total,
-        resigned: resigned.meta.total,
-        leave: inactive.meta.total,
+        total: data.total,
+        active: data.active,
+        resigned: data.resigned,
+        leave: data.inactive,
       });
     } catch {
       /* ignore stats errors */
@@ -113,49 +106,17 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList, positionList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches(),
-          fetchPositions(),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
-        setPositions(positionList);
+        setPositions(await fetchPositions());
         await Promise.all([loadList(emptyFilters, 1), loadStats()]);
-      } catch {
-        router.replace("/login");
-        return;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Không tải được danh sách.");
       } finally {
         setLoading(false);
       }
     }
     void boot();
-  }, [router, loadList, loadStats]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý nhân sự và thông tin nhân viên",
-      },
-    };
-  }, [shell]);
+  }, [loadList, loadStats]);
 
   async function refreshAll() {
     await Promise.all([loadList(applied, page), loadStats()]);
@@ -200,7 +161,7 @@ export default function EmployeesPage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

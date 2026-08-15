@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { BookOpen, Plus } from "lucide-react";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { RoleDetailPanel } from "@/components/roles/RoleDetailPanel";
 import { RoleFormModal } from "@/components/roles/RoleFormModal";
 import { RolesListPanel } from "@/components/roles/RolesListPanel";
-import { fetchDashboard, getAccessToken, me } from "@/lib/api";
 import {
   createRole,
   fetchRoles,
@@ -22,7 +21,6 @@ import {
   type RoleItem,
   type RolePermissionCell,
 } from "@/lib/roles-data";
-import type { DashboardData } from "@/types/dashboard";
 
 function mapRole(role: ApiRole): RoleItem {
   return {
@@ -41,8 +39,9 @@ function mapRole(role: ApiRole): RoleItem {
 }
 
 export default function RolesPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
+  const { shell, headerData } = useAdminChrome(
+    "Quản lý vai trò và quyền hạn trong hệ thống",
+  );
   const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -66,27 +65,16 @@ export default function RolesPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        router.replace("/login");
-        return;
-      }
       try {
-        await me();
-        const dash = await fetchDashboard();
-        setShell(dash);
         await loadRoles();
       } catch (err) {
-        if (!getAccessToken()) {
-          router.replace("/login");
-          return;
-        }
         setError(err instanceof Error ? err.message : "Không tải được vai trò.");
       } finally {
         setLoading(false);
       }
     }
     void boot();
-  }, [router, loadRoles]);
+  }, [loadRoles]);
 
   useEffect(() => {
     if (!toast) return;
@@ -98,17 +86,6 @@ export default function RolesPage() {
     () => roles.find((r) => r.id === selectedId) ?? roles[0] ?? null,
     [roles, selectedId],
   );
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý vai trò và quyền hạn trong hệ thống",
-      },
-    };
-  }, [shell]);
 
   async function persistPermissions(
     roleId: number,
@@ -212,7 +189,7 @@ export default function RolesPage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

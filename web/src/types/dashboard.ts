@@ -17,42 +17,53 @@ export type AttendanceRow = {
   status_label: string;
 };
 
-export type DashboardData = {
+export type ShellAccess = {
+  role_label: string;
+  membership_role: string | null;
+  is_owner: boolean;
+  custom_role: {
+    id: number;
+    slug: string;
+    name: string;
+    is_default: boolean;
+  } | null;
+  employee_id?: number | null;
+  employee?: {
+    id: number;
+    employee_code: string;
+    full_name: string;
+    branches: { id: number; name: string; is_primary: boolean }[];
+  } | null;
+  permissions: Record<
+    string,
+    {
+      view: boolean;
+      create: boolean;
+      update: boolean;
+      delete: boolean;
+      export: boolean;
+    }
+  >;
+};
+
+export type ShellData = {
   greeting: { name: string; message: string };
   role?: string | null;
   role_label?: string;
-  access?: {
-    role_label: string;
-    membership_role: string | null;
-    is_owner: boolean;
-    custom_role: {
-      id: number;
-      slug: string;
-      name: string;
-      is_default: boolean;
-    } | null;
-    employee_id?: number | null;
-    employee?: {
-      id: number;
-      employee_code: string;
-      full_name: string;
-      branches: { id: number; name: string; is_primary: boolean }[];
-    } | null;
-    permissions: Record<
-      string,
-      {
-        view: boolean;
-        create: boolean;
-        update: boolean;
-        delete: boolean;
-        export: boolean;
-      }
-    >;
-  } | null;
+  access?: ShellAccess | null;
   branch: { id: number; name: string };
   branches?: { id: number; name: string; is_headquarters?: boolean; address?: string | null }[];
   date: string;
   notification_count: number;
+  notifications: {
+    id: number | string;
+    type: "warning" | "shift" | "document" | "leave" | "employee" | "reward";
+    title: string;
+    message?: string;
+    time: string;
+    unread?: boolean;
+    leave_id?: number;
+  }[];
   pending_leaves?: {
     id: number;
     employee_id: number;
@@ -70,6 +81,10 @@ export type DashboardData = {
     created_at?: string | null;
     time: string;
   }[];
+  tenant: { name: string; branch: string; avatar: string; logo_url?: string | null; has_logo?: boolean };
+};
+
+export type DashboardData = ShellData & {
   kpis: Kpi[];
   attendance_today: AttendanceRow[];
   salary_projection: {
@@ -97,16 +112,6 @@ export type DashboardData = {
     time: string;
     employees: number;
   }[];
-  notifications: {
-    id: number | string;
-    type: "warning" | "shift" | "document" | "leave" | "employee" | "reward";
-    title: string;
-    message?: string;
-    time: string;
-    unread?: boolean;
-    leave_id?: number;
-  }[];
-  tenant: { name: string; branch: string; avatar: string; logo_url?: string | null; has_logo?: boolean };
 };
 
 export const mockDashboard: DashboardData = {

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useAppearance } from "@/components/appearance/AppearanceProvider";
 import { CompanyBrand } from "@/components/dashboard/CompanyBrand";
-import type { DashboardData } from "@/types/dashboard";
+import type { ShellData } from "@/types/dashboard";
 
 const hrNav = [
   { label: "Tổng quan", icon: LayoutDashboard, href: "/dashboard" },
@@ -136,7 +136,7 @@ export function Sidebar({
   tenant,
   active = "Tổng quan",
 }: {
-  tenant: DashboardData["tenant"];
+  tenant: ShellData["tenant"];
   active?: string;
   access?: unknown;
 }) {

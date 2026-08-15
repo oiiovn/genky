@@ -19,6 +19,19 @@ class AttendanceController extends Controller
     {
     }
 
+    public function overview(Request $request): JsonResponse
+    {
+        $date = $request->query('date', now()->toDateString());
+        $branchId = $request->query('branch_id');
+
+        return response()->json([
+            'data' => $this->attendance->overview(
+                (string) $date,
+                $branchId ? (int) $branchId : null
+            ),
+        ]);
+    }
+
     public function dashboard(Request $request): JsonResponse
     {
         $date = $request->query('date', now()->toDateString());
@@ -42,6 +55,17 @@ class AttendanceController extends Controller
                 (string) $date,
                 $branchId ? (int) $branchId : null
             ),
+        ]);
+    }
+
+    public function mine(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => $this->attendance->mine($request->only([
+                'date',
+                'from',
+                'to',
+            ]))->values(),
         ]);
     }
 

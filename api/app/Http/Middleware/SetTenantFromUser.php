@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Access\AccessCache;
 use App\Support\Tenancy\TenantContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -12,11 +13,11 @@ class SetTenantFromUser
     public function handle(Request $request, Closure $next): Response
     {
         TenantContext::clear();
+        AccessCache::flushRequest();
 
         $user = $request->user();
 
         if ($user) {
-            $user->refresh();
             $user->loadMissing('currentOrganization');
             TenantContext::fromUser($user);
         }
@@ -27,5 +28,6 @@ class SetTenantFromUser
     public function terminate(Request $request, Response $response): void
     {
         TenantContext::clear();
+        AccessCache::flushRequest();
     }
 }

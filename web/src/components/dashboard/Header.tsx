@@ -8,12 +8,12 @@ import {
 import { useAppearance } from "@/components/appearance/AppearanceProvider";
 import { NotificationDropdown } from "@/components/dashboard/NotificationDropdown";
 import { UserMenu } from "@/components/dashboard/UserMenu";
-import type { DashboardData } from "@/types/dashboard";
+import type { ShellData } from "@/types/dashboard";
 
 export function Header({
   data,
 }: {
-  data: DashboardData;
+  data: ShellData;
   subtitle?: string;
 }) {
   const appearance = useAppearance();

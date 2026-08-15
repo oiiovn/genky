@@ -13,6 +13,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Auth\AuthService;
 use App\Services\Role\RoleService;
+use App\Support\Access\AccessCache;
 use App\Support\Authorization\EmployeePermission;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -29,52 +30,30 @@ class EmployeeService
 
     public function list(array $filters = []): LengthAwarePaginator
     {
-        $permission = EmployeePermission::for();
-        $permission->assertCanViewAny();
-
-        $query = Employee::query()
+        return $this->scopedQuery($filters)
             ->with(['position', 'role', 'branches'])
-            ->orderBy('full_name');
+            ->orderBy('full_name')
+            ->paginate((int) ($filters['per_page'] ?? 20));
+    }
 
-        if ($permission->isEmployeeOnly()) {
-            $query->where('user_id', auth()->id());
-        } elseif ($permission->isManager()) {
-            $branchIds = $permission->managedBranchIds();
-            if ($branchIds->isEmpty()) {
-                $query->whereRaw('0 = 1');
-            } else {
-                $query->whereHas('branches', fn ($q) => $q->whereIn('branches.id', $branchIds));
-            }
-        }
+    /**
+     * @return array{total: int, active: int, resigned: int, inactive: int}
+     */
+    public function stats(array $filters = []): array
+    {
+        $row = $this->scopedQuery($filters)
+            ->selectRaw('count(*) as total')
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as active', [Employee::STATUS_ACTIVE])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as resigned', [Employee::STATUS_RESIGNED])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as inactive', [Employee::STATUS_INACTIVE])
+            ->first();
 
-        if (! empty($filters['branch_id'])) {
-            $query->whereHas('branches', fn ($q) => $q->where('branches.id', (int) $filters['branch_id']));
-        }
-
-        if (! empty($filters['status'])) {
-            $query->where('status', $filters['status']);
-        }
-
-        if (! empty($filters['role_id'])) {
-            $query->where('role_id', (int) $filters['role_id']);
-        }
-
-        if (! empty($filters['position_id'])) {
-            $query->where('position_id', (int) $filters['position_id']);
-        }
-
-        if (! empty($filters['search'])) {
-            $search = trim((string) $filters['search']);
-            $like = '%'.mb_strtolower($search).'%';
-            $query->where(function ($q) use ($like) {
-                $q->whereRaw('lower(full_name) like ?', [$like])
-                    ->orWhereRaw('lower(employee_code) like ?', [$like])
-                    ->orWhereRaw('lower(coalesce(phone, "")) like ?', [$like])
-                    ->orWhereRaw('lower(coalesce(email, "")) like ?', [$like]);
-            });
-        }
-
-        return $query->paginate((int) ($filters['per_page'] ?? 20));
+        return [
+            'total' => (int) ($row?->total ?? 0),
+            'active' => (int) ($row?->active ?? 0),
+            'resigned' => (int) ($row?->resigned ?? 0),
+            'inactive' => (int) ($row?->inactive ?? 0),
+        ];
     }
 
     public function findOrFail(int $id): Employee
@@ -620,21 +599,21 @@ class EmployeeService
             ->where('user_id', $employee->user_id)
             ->delete();
 
-        if (! $employee->role_id) {
-            return;
+        if ($employee->role_id) {
+            DB::table('role_user')->updateOrInsert(
+                [
+                    'role_id' => $employee->role_id,
+                    'user_id' => $employee->user_id,
+                ],
+                [
+                    'organization_id' => $orgId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
         }
 
-        DB::table('role_user')->updateOrInsert(
-            [
-                'role_id' => $employee->role_id,
-                'user_id' => $employee->user_id,
-            ],
-            [
-                'organization_id' => $orgId,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]
-        );
+        AccessCache::bumpPermissions((int) $orgId);
     }
 
     protected function nextEmployeeCode(): string
@@ -656,6 +635,57 @@ class EmployeeService
         } while ($exists);
 
         return $code;
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    protected function scopedQuery(array $filters = [])
+    {
+        $permission = EmployeePermission::for();
+        $permission->assertCanViewAny();
+
+        $query = Employee::query();
+
+        if ($permission->isEmployeeOnly()) {
+            $query->where('user_id', auth()->id());
+        } elseif ($permission->isManager()) {
+            $branchIds = $permission->managedBranchIds();
+            if ($branchIds->isEmpty()) {
+                $query->whereRaw('0 = 1');
+            } else {
+                $query->whereHas('branches', fn ($q) => $q->whereIn('branches.id', $branchIds));
+            }
+        }
+
+        if (! empty($filters['branch_id'])) {
+            $query->whereHas('branches', fn ($q) => $q->where('branches.id', (int) $filters['branch_id']));
+        }
+
+        if (! empty($filters['status'])) {
+            $query->where('status', $filters['status']);
+        }
+
+        if (! empty($filters['role_id'])) {
+            $query->where('role_id', (int) $filters['role_id']);
+        }
+
+        if (! empty($filters['position_id'])) {
+            $query->where('position_id', (int) $filters['position_id']);
+        }
+
+        if (! empty($filters['search'])) {
+            $search = trim((string) $filters['search']);
+            $like = '%'.mb_strtolower($search).'%';
+            $query->where(function ($q) use ($like) {
+                $q->whereRaw('lower(full_name) like ?', [$like])
+                    ->orWhereRaw('lower(employee_code) like ?', [$like])
+                    ->orWhereRaw('lower(coalesce(phone, "")) like ?', [$like])
+                    ->orWhereRaw('lower(coalesce(email, "")) like ?', [$like]);
+            });
+        }
+
+        return $query;
     }
 
     /**

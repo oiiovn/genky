@@ -2,16 +2,16 @@
 
 namespace App\Services\Payroll;
 
-use App\Models\AttendanceLog;
 use App\Models\Employee;
+use App\Models\MonthlyWorkSummary;
 use App\Models\PayrollEntry;
 use App\Models\PayrollPayment;
-use App\Models\Shift;
-use App\Models\ShiftAssignment;
 use App\Services\Employee\EmployeeService;
+use App\Services\Work\MonthlyWorkSummaryService;
 use App\Support\Authorization\PayrollPermission;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -28,8 +28,24 @@ class PayrollService
         '#64748B',
     ];
 
-    public function __construct(private readonly EmployeeService $employees)
+    /** @var array<string, true> */
+    private array $freshMonths = [];
+
+    public function __construct(
+        private readonly EmployeeService $employees,
+        private readonly MonthlyWorkSummaryService $monthly,
+    ) {
+    }
+
+    protected function ensureMonth(int $year, int $month): void
     {
+        $key = $year.'-'.$month;
+        if (isset($this->freshMonths[$key])) {
+            return;
+        }
+
+        $this->monthly->ensureFresh($year, $month);
+        $this->freshMonths[$key] = true;
     }
 
     /**
@@ -56,25 +72,27 @@ class PayrollService
         $page = max(1, (int) ($filters['page'] ?? 1));
         $perPage = min(100, max(1, (int) ($filters['per_page'] ?? 10)));
 
-        $rows = $this->buildRows($year, $month, $filters);
-        $stats = $this->computeStats($rows, $year, $month, $filters);
-        $departmentsCost = $this->departmentCostBreakdown($rows);
-
-        $total = $rows->count();
+        $this->ensureMonth($year, $month);
+        $filtered = $this->filteredPayrollQuery($year, $month, $filters);
+        $total = (int) (clone $filtered)->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min($page, $lastPage);
-        $slice = $rows->slice(($page - 1) * $perPage, $perPage)->values();
 
-        $departments = $rows
-            ->pluck('department')
-            ->filter(fn ($d) => $d && $d !== 'Chưa phân bổ' && $d !== '—')
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
+        $ids = (clone $filtered)
+            ->join('employees as emp_sort', 'emp_sort.id', '=', 'pr.employee_id')
+            ->orderBy('emp_sort.full_name')
+            ->orderBy('pr.employee_id')
+            ->forPage($page, $perPage)
+            ->pluck('pr.employee_id');
+
+        $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
+        $rows = $this->hydrateByIds($ids, $year, $month, $branchId);
+        $current = $this->aggregateMonth($year, $month, $filters);
+        $prev = Carbon::create($year, $month, 1)->subMonth();
+        $departmentCosts = $this->departmentCostBreakdown($year, $month, $filters);
 
         return [
-            'data' => $slice->all(),
+            'data' => $rows->all(),
             'meta' => [
                 'current_page' => $page,
                 'last_page' => $lastPage,
@@ -86,13 +104,21 @@ class PayrollService
                 'to' => $bounds['to'],
                 'label' => $bounds['label'],
             ],
-            'stats' => $stats,
+            'stats' => $this->statsFromAggregates(
+                $current,
+                $this->aggregateMonth((int) $prev->year, (int) $prev->month, $filters),
+            ),
             'summary' => [
-                'paid' => $rows->where('status', PayrollEntry::STATUS_PAID)->count(),
-                'pending' => $rows->where('status', '!=', PayrollEntry::STATUS_PAID)->count(),
+                'paid' => $current['paid'],
+                'pending' => $current['pending'],
             ],
-            'departments' => $departments,
-            'department_costs' => $departmentsCost,
+            'departments' => collect($departmentCosts)
+                ->pluck('name')
+                ->filter(fn ($name) => $name !== '' && $name !== 'Chưa phân bổ' && $name !== '—')
+                ->sort()
+                ->values()
+                ->all(),
+            'department_costs' => $departmentCosts,
         ];
     }
 
@@ -102,14 +128,18 @@ class PayrollService
 
         $year = (int) ($filters['year'] ?? now()->year);
         $month = (int) ($filters['month'] ?? now()->month);
-        $rows = $this->buildRows($year, $month, $filters);
+        $current = $this->aggregateMonth($year, $month, $filters);
+        $prev = Carbon::create($year, $month, 1)->subMonth();
 
         return [
-            'stats' => $this->computeStats($rows, $year, $month, $filters),
-            'department_costs' => $this->departmentCostBreakdown($rows),
+            'stats' => $this->statsFromAggregates(
+                $current,
+                $this->aggregateMonth((int) $prev->year, (int) $prev->month, $filters),
+            ),
+            'department_costs' => $this->departmentCostBreakdown($year, $month, $filters),
             'summary' => [
-                'paid' => $rows->where('status', PayrollEntry::STATUS_PAID)->count(),
-                'pending' => $rows->where('status', '!=', PayrollEntry::STATUS_PAID)->count(),
+                'paid' => $current['paid'],
+                'pending' => $current['pending'],
             ],
         ];
     }
@@ -126,9 +156,8 @@ class PayrollService
             PayrollPermission::for()->assertCanAccessBranch($branchId);
         }
 
-        $rows = $this->buildRows($year, $month, array_filter([
-            'branch_id' => $branchId,
-        ]));
+        $employees = $this->scopedEmployees($branchId);
+        $rows = $this->hydrateMany($employees, $year, $month, $branchId);
 
         $created = 0;
         $updated = 0;
@@ -189,9 +218,13 @@ class PayrollService
             $status = PayrollEntry::STATUS_PAID;
         }
 
-        $rowsById = $this->buildRows($year, $month, [])->keyBy('id');
-        $allowed = $this->scopedEmployees(null)->pluck('id');
+        $allowed = $this->scopedEmployeeQuery(null)->pluck('employees.id');
         $ids = $ids->filter(fn ($id) => $allowed->contains($id))->values();
+        $employees = Employee::query()
+            ->with(['position', 'role', 'branches'])
+            ->whereIn('id', $ids)
+            ->get();
+        $rowsById = $this->hydrateMany($employees, $year, $month, null)->keyBy('id');
 
         $count = 0;
         foreach ($ids as $employeeId) {
@@ -243,15 +276,19 @@ class PayrollService
         $method = (string) $data['method'];
         $content = trim((string) ($data['content'] ?? ''));
 
-        $allowed = $this->scopedEmployees(null)->pluck('id');
-        if (! $allowed->contains($employeeId)) {
+        if (! $this->scopedEmployeeQuery(null)->where('employees.id', $employeeId)->exists()) {
             throw ValidationException::withMessages([
                 'employee_id' => ['Bạn không có quyền thanh toán cho nhân viên này.'],
             ]);
         }
 
         return DB::transaction(function () use ($year, $month, $employeeId, $amount, $method, $content) {
-            $computed = $this->buildRows($year, $month, [])->firstWhere('id', $employeeId);
+            $employee = Employee::query()
+                ->with(['position', 'role', 'branches'])
+                ->find($employeeId);
+            $computed = $employee
+                ? $this->hydrateMany(collect([$employee]), $year, $month, null)->first()
+                : null;
             if (! $computed) {
                 throw ValidationException::withMessages([
                     'employee_id' => ['Không tìm thấy nhân viên trong bảng lương.'],
@@ -654,237 +691,293 @@ class PayrollService
      */
     protected function buildRows(int $year, int $month, array $filters): Collection
     {
-        $bounds = $this->monthBounds($year, $month);
+        $this->ensureMonth($year, $month);
         $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
-        $department = trim((string) ($filters['department'] ?? ''));
-        $status = trim((string) ($filters['status'] ?? ''));
-        $search = mb_strtolower(trim((string) ($filters['search'] ?? '')));
+        $ids = $this->filteredPayrollQuery($year, $month, $filters)
+            ->join('employees as emp_sort', 'emp_sort.id', '=', 'pr.employee_id')
+            ->orderBy('emp_sort.full_name')
+            ->orderBy('pr.employee_id')
+            ->pluck('pr.employee_id');
 
-        if ($branchId) {
-            PayrollPermission::for()->assertCanAccessBranch($branchId);
+        return $this->hydrateByIds($ids, $year, $month, $branchId);
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function departmentOptions(int $year, int $month, array $filters): array
+    {
+        return $this->filteredPayrollQuery($year, $month, $filters)
+            ->whereNotIn('department', ['Chưa phân bổ', '—'])
+            ->distinct()
+            ->orderBy('department')
+            ->pluck('department')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  Collection<int, int|string>  $ids
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function hydrateByIds(Collection $ids, int $year, int $month, ?int $branchId): Collection
+    {
+        $ids = $ids->map(fn ($id) => (int) $id)->unique()->values();
+        if ($ids->isEmpty()) {
+            return collect();
         }
 
-        $employees = $this->scopedEmployees($branchId);
-        $employeeIds = $employees->pluck('id');
-
-        $logs = AttendanceLog::query()
-            ->with('shift')
-            ->whereIn('employee_id', $employeeIds)
-            ->whereBetween('work_date', [$bounds['from'], $bounds['to']])
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+        $employees = Employee::query()
+            ->with(['position', 'role', 'branches'])
+            ->whereIn('id', $ids)
             ->get()
-            ->groupBy('employee_id');
+            ->keyBy('id');
 
-        $assignments = ShiftAssignment::query()
-            ->with('shift')
-            ->whereIn('employee_id', $employeeIds)
-            ->whereBetween('date', [$bounds['from'], $bounds['to']])
-            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+        return $this->hydrateMany(
+            $ids->map(fn (int $id) => $employees->get($id))->filter()->values(),
+            $year,
+            $month,
+            $branchId,
+            $ids,
+        );
+    }
+
+    /**
+     * @param  Collection<int, Employee>  $employees
+     * @param  Collection<int, int>|null  $orderedIds
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function hydrateMany(
+        Collection $employees,
+        int $year,
+        int $month,
+        ?int $branchId,
+        ?Collection $orderedIds = null,
+    ): Collection {
+        $this->ensureMonth($year, $month);
+        $ids = $employees->pluck('id')->map(fn ($id) => (int) $id)->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $summaries = MonthlyWorkSummary::query()
+            ->where('year', $year)
+            ->where('month', $month)
+            ->where('branch_id', $branchId ?: 0)
+            ->whereIn('employee_id', $ids)
             ->get()
-            ->groupBy('employee_id');
+            ->keyBy('employee_id');
 
         $entries = PayrollEntry::query()
-            ->whereIn('employee_id', $employeeIds)
+            ->whereIn('employee_id', $ids)
             ->where('year', $year)
             ->where('month', $month)
             ->get()
             ->keyBy('employee_id');
 
-        $rows = $employees->map(function (Employee $employee) use ($logs, $assignments, $entries) {
-            /** @var Collection<int, AttendanceLog> $empLogs */
-            $empLogs = $logs->get($employee->id, collect());
-            /** @var Collection<int, ShiftAssignment> $empAssignments */
-            $empAssignments = $assignments->get($employee->id, collect());
-            $entry = $entries->get($employee->id);
+        $rows = $employees->map(function (Employee $employee) use ($summaries, $entries) {
+            return $this->hydrateRow(
+                $employee,
+                $summaries->get($employee->id),
+                $entries->get($employee->id),
+            );
+        })->keyBy('id');
 
-            $leaveLogs = $empLogs->filter(fn (AttendanceLog $log) => $log->isLeave());
-            $paidLeaveLogs = $leaveLogs->filter(fn (AttendanceLog $log) => $log->isPaidLeave());
-            $unpaidLeaveLogs = $leaveLogs->filter(fn (AttendanceLog $log) => ! $log->isPaidLeave());
-            $leaveDays = $leaveLogs->count();
-            $paidLeaveDays = $paidLeaveLogs->count();
-            $unpaidDays = $unpaidLeaveLogs->count();
+        $order = $orderedIds ?? $ids;
 
-            $workedLogs = $empLogs->filter(function (AttendanceLog $log) {
-                if ($log->isLeave() || $log->status === AttendanceLog::STATUS_ABSENT) {
-                    return false;
-                }
-
-                return in_array($log->status, [
-                    AttendanceLog::STATUS_WORKING,
-                    AttendanceLog::STATUS_CHECKED_OUT,
-                ], true) || $log->check_in_at !== null;
-            });
-
-            $workedMinutes = 0;
-            foreach ($workedLogs as $log) {
-                $mins = $log->total_minutes;
-                if ($mins === null && $log->check_in_at && $log->check_out_at) {
-                    $mins = max(0, $log->check_in_at->diffInMinutes($log->check_out_at) - (int) $log->break_minutes);
-                }
-                $workedMinutes += (int) ($mins ?? 0);
-            }
-
-            $paidLeaveMinutes = 0;
-            foreach ($paidLeaveLogs as $log) {
-                $paidLeaveMinutes += $this->leaveDayMinutes($log, $empAssignments);
-            }
-
-            $unpaidLeaveMinutes = 0;
-            foreach ($unpaidLeaveLogs as $log) {
-                $unpaidLeaveMinutes += $this->leaveDayMinutes($log, $empAssignments);
-            }
-
-            $assignmentMinutes = 0;
-            if ($workedLogs->isEmpty() && $leaveDays === 0) {
-                foreach ($empAssignments as $assignment) {
-                    if ($assignment->shift) {
-                        $assignmentMinutes += $this->shiftMinutes($assignment->shift);
-                    }
-                }
-            }
-
-            $totalMinutes = $workedMinutes + $paidLeaveMinutes;
-            if ($assignmentMinutes > 0) {
-                $totalMinutes = $assignmentMinutes;
-            }
-
-            $frozen = $entry && in_array($entry->status, [
-                PayrollEntry::STATUS_PAID,
-                PayrollEntry::STATUS_PARTIAL,
-            ], true);
-
-            if ($frozen && (int) $entry->net > 0) {
-                $income = (int) $entry->income;
-                $deductions = (int) $entry->deductions;
-                $net = (int) $entry->net;
-                if ((int) $entry->total_minutes > 0) {
-                    $totalMinutes = (int) $entry->total_minutes;
-                }
-            } else {
-                $incomeMinutes = $workedMinutes + $paidLeaveMinutes;
-                if ($employee->salary_type !== 'hourly') {
-                    $incomeMinutes += $unpaidLeaveMinutes;
-                }
-                if ($assignmentMinutes > 0) {
-                    $incomeMinutes = $assignmentMinutes;
-                }
-
-                $income = $this->incomeFromHours($employee, $incomeMinutes, $leaveDays > 0);
-                $dailyRate = $this->dailyRate($employee);
-                $deductions = $unpaidDays * $dailyRate;
-
-                if ($workedMinutes <= 0 && $paidLeaveMinutes <= 0 && $unpaidDays > 0) {
-                    $income = 0;
-                    $net = 0;
-                } else {
-                    $net = max(0, $income - $deductions);
-                }
-            }
-
-            $paidAmount = (int) ($entry?->paid_amount ?? 0);
-            $remaining = max(0, $net - $paidAmount);
-            $rowStatus = $entry?->status ?? PayrollEntry::STATUS_PENDING;
-            if ($remaining <= 0 && $net > 0) {
-                $rowStatus = PayrollEntry::STATUS_PAID;
-            } elseif ($paidAmount > 0 && $remaining > 0) {
-                $rowStatus = PayrollEntry::STATUS_PARTIAL;
-            }
-
-            $dept = $employee->position?->name ?? 'Chưa phân bổ';
-
-            return [
-                'id' => $employee->id,
-                'employee' => $this->employees->payload($employee),
-                'department' => $dept,
-                'position' => $employee->position?->name ?? '—',
-                'total_minutes' => $totalMinutes,
-                'leave_days' => $leaveDays,
-                'paid_leave_days' => $paidLeaveDays,
-                'unpaid_days' => $unpaidDays,
-                'income' => $income,
-                'deductions' => $deductions,
-                'net' => $net,
-                'paid_amount' => $paidAmount,
-                'remaining' => $remaining,
-                'status' => $rowStatus,
-                'branch_ids' => $employee->branches->pluck('id')->values()->all(),
-                'paid_at' => $entry?->paid_at?->toIso8601String(),
-            ];
-        });
-
-        return $rows
-            ->filter(function (array $row) use ($department, $status, $search) {
-                if ($department !== '' && $row['department'] !== $department) {
-                    return false;
-                }
-                if ($status !== '' && $row['status'] !== $status) {
-                    return false;
-                }
-                if ($search !== '') {
-                    $hay = mb_strtolower(
-                        ($row['employee']['full_name'] ?? '').' '.
-                        ($row['employee']['employee_code'] ?? '').' '.
-                        $row['department']
-                    );
-                    if (! str_contains($hay, $search)) {
-                        return false;
-                    }
-                }
-
-                return true;
-            })
-            ->values();
+        return $order->map(fn ($id) => $rows->get((int) $id))->filter()->values();
     }
 
-    protected function computeStats(Collection $rows, int $year, int $month, array $filters): array
+    /**
+     * @param  array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int}  $current
+     * @param  array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int}  $previous
+     * @return array<string, float|int>
+     */
+    protected function statsFromAggregates(array $current, array $previous): array
     {
-        $employees = $rows->count();
-        $income = (int) $rows->sum('income');
-        $deductions = (int) $rows->sum('deductions');
-        $fund = (int) $rows->sum('net');
-        $paid = $rows->where('status', PayrollEntry::STATUS_PAID)->count();
-
-        $prev = Carbon::create($year, $month, 1)->subMonth();
-        $prevRows = $this->buildRows((int) $prev->year, (int) $prev->month, $filters);
-        $prevIncome = (int) $prevRows->sum('income');
-        $prevDeductions = (int) $prevRows->sum('deductions');
-        $prevFund = (int) $prevRows->sum('net');
-
         return [
-            'employees' => $employees,
-            'fund' => $fund,
-            'income' => $income,
-            'deductions' => $deductions,
-            'paid_percent' => $employees > 0 ? round(($paid / $employees) * 100, 1) : 0,
-            'fund_delta' => $this->percentDelta($fund, $prevFund),
-            'income_delta' => $this->percentDelta($income, $prevIncome),
-            'deductions_delta' => $this->percentDelta($deductions, $prevDeductions),
+            'employees' => $current['employees'],
+            'fund' => $current['fund'],
+            'income' => $current['income'],
+            'deductions' => $current['deductions'],
+            'paid_percent' => $current['employees'] > 0
+                ? round(($current['paid'] / $current['employees']) * 100, 1)
+                : 0,
+            'fund_delta' => $this->percentDelta($current['fund'], $previous['fund']),
+            'income_delta' => $this->percentDelta($current['income'], $previous['income']),
+            'deductions_delta' => $this->percentDelta($current['deductions'], $previous['deductions']),
         ];
     }
 
-    protected function departmentCostBreakdown(Collection $rows): array
+    protected function computeStats(int $year, int $month, array $filters): array
     {
-        $map = [];
-        foreach ($rows as $row) {
-            $name = $row['department'];
-            $map[$name] = ($map[$name] ?? 0) + (int) $row['net'];
-        }
+        $current = $this->aggregateMonth($year, $month, $filters);
+        $prev = Carbon::create($year, $month, 1)->subMonth();
+
+        return $this->statsFromAggregates(
+            $current,
+            $this->aggregateMonth((int) $prev->year, (int) $prev->month, $filters),
+        );
+    }
+
+    /**
+     * @return array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int}
+     */
+    protected function aggregateMonth(int $year, int $month, array $filters): array
+    {
+        $row = $this->filteredPayrollQuery($year, $month, $filters)
+            ->selectRaw('count(*) as employees')
+            ->selectRaw('coalesce(sum(income), 0) as income')
+            ->selectRaw('coalesce(sum(deductions), 0) as deductions')
+            ->selectRaw('coalesce(sum(net), 0) as fund')
+            ->selectRaw("coalesce(sum(case when row_status = 'paid' then 1 else 0 end), 0) as paid")
+            ->first();
+
+        $employees = (int) ($row->employees ?? 0);
+        $paid = (int) ($row->paid ?? 0);
+
+        return [
+            'employees' => $employees,
+            'income' => (int) round((float) ($row->income ?? 0)),
+            'deductions' => (int) round((float) ($row->deductions ?? 0)),
+            'fund' => (int) round((float) ($row->fund ?? 0)),
+            'paid' => $paid,
+            'pending' => max(0, $employees - $paid),
+        ];
+    }
+
+    /**
+     * @return array{paid: int, pending: int}
+     */
+    protected function aggregateSummary(int $year, int $month, array $filters): array
+    {
+        $agg = $this->aggregateMonth($year, $month, $filters);
+
+        return [
+            'paid' => $agg['paid'],
+            'pending' => $agg['pending'],
+        ];
+    }
+
+    protected function departmentCostBreakdown(int $year, int $month, array $filters): array
+    {
+        $rows = $this->filteredPayrollQuery($year, $month, $filters)
+            ->selectRaw('department')
+            ->selectRaw('coalesce(sum(net), 0) as value')
+            ->groupBy('department')
+            ->orderByDesc('value')
+            ->get();
 
         $items = [];
         $i = 0;
-        foreach ($map as $name => $value) {
+        foreach ($rows as $row) {
             $items[] = [
-                'name' => $name,
-                'value' => $value,
+                'name' => (string) $row->department,
+                'value' => (int) round((float) $row->value),
                 'color' => self::DEPT_COLORS[$i % count(self::DEPT_COLORS)],
             ];
             $i++;
         }
 
-        usort($items, fn ($a, $b) => $b['value'] <=> $a['value']);
-
         return $items;
+    }
+
+    protected function payrollComputedQuery(int $year, int $month, array $filters): Builder
+    {
+        $this->ensureMonth($year, $month);
+
+        $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
+        if ($branchId) {
+            PayrollPermission::for()->assertCanAccessBranch($branchId);
+        }
+
+        $department = trim((string) ($filters['department'] ?? ''));
+        $search = trim((string) ($filters['search'] ?? ''));
+        $orgId = TenantContext::id();
+
+        $worked = 'coalesce(mws.payroll_worked_minutes, 0)';
+        $paidLeaveM = 'coalesce(mws.payroll_paid_leave_minutes, 0)';
+        $unpaidLeaveM = 'coalesce(mws.payroll_unpaid_leave_minutes, 0)';
+        $assignM = 'coalesce(mws.payroll_assignment_minutes, 0)';
+        $leaveDays = 'coalesce(mws.payroll_leave_days, 0)';
+        $unpaidDays = 'coalesce(mws.payroll_unpaid_days, 0)';
+        $amount = 'coalesce(employees.salary_amount, 0)';
+        $incomeMinutes = "case when {$assignM} > 0 then {$assignM} when employees.salary_type = 'hourly' then {$worked} + {$paidLeaveM} else {$worked} + {$paidLeaveM} + {$unpaidLeaveM} end";
+        $hours = "({$incomeMinutes}) / 60.0";
+        $monthlyCap = "{$amount} * 1.2";
+        $hourlyFromMonthly = "({$amount} / 176.0) * ({$hours})";
+        $cappedMonthly = "case when {$monthlyCap} < {$hourlyFromMonthly} then {$monthlyCap} else {$hourlyFromMonthly} end";
+        $rawIncome = "case when employees.salary_type = 'hourly' then {$amount} * ({$hours}) when ({$incomeMinutes}) <= 0 and {$leaveDays} > 0 then 0 when ({$incomeMinutes}) <= 0 then {$amount} * 0.5 else {$cappedMonthly} end";
+        $dailyRate = "case when employees.salary_type = 'hourly' then {$amount} * 8 else {$amount} / 26.0 end";
+        $rawDeductions = "({$unpaidDays}) * ({$dailyRate})";
+        $zeroed = "{$worked} <= 0 and {$paidLeaveM} <= 0 and {$unpaidDays} > 0";
+        $frozen = "pe.status in ('paid', 'partial') and coalesce(pe.net, 0) > 0";
+        $income = "case when {$frozen} then pe.income when {$zeroed} then 0 else {$rawIncome} end";
+        $deductions = "case when {$frozen} then pe.deductions else {$rawDeductions} end";
+        $net = "case when {$frozen} then pe.net when {$zeroed} then 0 else case when ({$rawIncome}) - ({$rawDeductions}) > 0 then ({$rawIncome}) - ({$rawDeductions}) else 0 end end";
+        $paidAmount = 'coalesce(pe.paid_amount, 0)';
+        $remaining = "case when ({$net}) - ({$paidAmount}) > 0 then ({$net}) - ({$paidAmount}) else 0 end";
+        $rowStatus = "case when ({$remaining}) <= 0 and ({$net}) > 0 then 'paid' when ({$paidAmount}) > 0 and ({$remaining}) > 0 then 'partial' else coalesce(pe.status, 'pending') end";
+
+        $query = $this->scopedEmployeeQuery($branchId)
+            ->leftJoin('monthly_work_summaries as mws', function ($join) use ($year, $month, $branchId, $orgId) {
+                $join->on('mws.employee_id', '=', 'employees.id')
+                    ->where('mws.year', '=', $year)
+                    ->where('mws.month', '=', $month)
+                    ->where('mws.branch_id', '=', $branchId ?: 0);
+                if ($orgId) {
+                    $join->where('mws.organization_id', '=', $orgId);
+                }
+            })
+            ->leftJoin('payroll_entries as pe', function ($join) use ($year, $month, $orgId) {
+                $join->on('pe.employee_id', '=', 'employees.id')
+                    ->where('pe.year', '=', $year)
+                    ->where('pe.month', '=', $month);
+                if ($orgId) {
+                    $join->where('pe.organization_id', '=', $orgId);
+                }
+            })
+            ->leftJoin('positions as pos', 'pos.id', '=', 'employees.position_id')
+            ->selectRaw('employees.id as employee_id')
+            ->selectRaw('coalesce(pos.name, ?) as department', ['Chưa phân bổ'])
+            ->selectRaw("({$income}) as income")
+            ->selectRaw("({$deductions}) as deductions")
+            ->selectRaw("({$net}) as net")
+            ->selectRaw("({$rowStatus}) as row_status");
+
+        if ($department !== '') {
+            if ($department === 'Chưa phân bổ') {
+                $query->whereNull('pos.id');
+            } else {
+                $query->where('pos.name', $department);
+            }
+        }
+
+        if ($search !== '') {
+            $like = '%'.addcslashes($search, '%_\\').'%';
+            $query->where(function (Builder $inner) use ($like) {
+                $inner->where('employees.full_name', 'like', $like)
+                    ->orWhere('employees.employee_code', 'like', $like)
+                    ->orWhere('pos.name', 'like', $like);
+            });
+        }
+
+        return $query;
+    }
+
+    protected function filteredPayrollQuery(int $year, int $month, array $filters)
+    {
+        $query = DB::query()->fromSub(
+            $this->payrollComputedQuery($year, $month, $filters)->toBase(),
+            'pr'
+        );
+
+        $status = trim((string) ($filters['status'] ?? ''));
+        if ($status !== '') {
+            $query->where('row_status', $status);
+        }
+
+        return $query;
     }
 
     protected function percentDelta(int $current, int $previous): float
@@ -894,6 +987,84 @@ class PayrollService
         }
 
         return round((($current - $previous) / $previous) * 100, 1);
+    }
+
+    protected function hydrateRow(
+        Employee $employee,
+        ?MonthlyWorkSummary $summary,
+        ?PayrollEntry $entry,
+    ): array {
+        $workedMinutes = (int) ($summary?->payroll_worked_minutes ?? 0);
+        $paidLeaveMinutes = (int) ($summary?->payroll_paid_leave_minutes ?? 0);
+        $unpaidLeaveMinutes = (int) ($summary?->payroll_unpaid_leave_minutes ?? 0);
+        $assignmentMinutes = (int) ($summary?->payroll_assignment_minutes ?? 0);
+        $leaveDays = (int) ($summary?->payroll_leave_days ?? 0);
+        $paidLeaveDays = (int) ($summary?->payroll_paid_leave_days ?? 0);
+        $unpaidDays = (int) ($summary?->payroll_unpaid_days ?? 0);
+        $totalMinutes = (int) ($summary?->payroll_total_minutes ?? 0);
+
+        $frozen = $entry && in_array($entry->status, [
+            PayrollEntry::STATUS_PAID,
+            PayrollEntry::STATUS_PARTIAL,
+        ], true);
+
+        if ($frozen && (int) $entry->net > 0) {
+            $income = (int) $entry->income;
+            $deductions = (int) $entry->deductions;
+            $net = (int) $entry->net;
+            if ((int) $entry->total_minutes > 0) {
+                $totalMinutes = (int) $entry->total_minutes;
+            }
+        } else {
+            $incomeMinutes = $workedMinutes + $paidLeaveMinutes;
+            if ($employee->salary_type !== 'hourly') {
+                $incomeMinutes += $unpaidLeaveMinutes;
+            }
+            if ($assignmentMinutes > 0) {
+                $incomeMinutes = $assignmentMinutes;
+            }
+
+            $income = $this->incomeFromHours($employee, $incomeMinutes, $leaveDays > 0);
+            $dailyRate = $this->dailyRate($employee);
+            $deductions = $unpaidDays * $dailyRate;
+
+            if ($workedMinutes <= 0 && $paidLeaveMinutes <= 0 && $unpaidDays > 0) {
+                $income = 0;
+                $net = 0;
+            } else {
+                $net = max(0, $income - $deductions);
+            }
+        }
+
+        $paidAmount = (int) ($entry?->paid_amount ?? 0);
+        $remaining = max(0, $net - $paidAmount);
+        $rowStatus = $entry?->status ?? PayrollEntry::STATUS_PENDING;
+        if ($remaining <= 0 && $net > 0) {
+            $rowStatus = PayrollEntry::STATUS_PAID;
+        } elseif ($paidAmount > 0 && $remaining > 0) {
+            $rowStatus = PayrollEntry::STATUS_PARTIAL;
+        }
+
+        $dept = $employee->position?->name ?? 'Chưa phân bổ';
+
+        return [
+            'id' => $employee->id,
+            'employee' => $this->employees->payload($employee),
+            'department' => $dept,
+            'position' => $employee->position?->name ?? '—',
+            'total_minutes' => $totalMinutes,
+            'leave_days' => $leaveDays,
+            'paid_leave_days' => $paidLeaveDays,
+            'unpaid_days' => $unpaidDays,
+            'income' => $income,
+            'deductions' => $deductions,
+            'net' => $net,
+            'paid_amount' => $paidAmount,
+            'remaining' => $remaining,
+            'status' => $rowStatus,
+            'branch_ids' => $employee->branches->pluck('id')->values()->all(),
+            'paid_at' => $entry?->paid_at?->toIso8601String(),
+        ];
     }
 
     protected function incomeFromHours(Employee $employee, int $minutes, bool $hasLeave = false): int
@@ -924,40 +1095,24 @@ class PayrollService
     }
 
     /**
-     * @param  Collection<int, ShiftAssignment>  $assignments
-     */
-    protected function leaveDayMinutes(AttendanceLog $log, Collection $assignments): int
-    {
-        if ($log->shift) {
-            return $this->shiftMinutes($log->shift);
-        }
-
-        $date = $log->work_date?->toDateString();
-        $assignment = $assignments->first(
-            fn (ShiftAssignment $a) => $a->date?->toDateString() === $date && $a->shift
-        );
-        if ($assignment?->shift) {
-            return $this->shiftMinutes($assignment->shift);
-        }
-
-        return 8 * 60;
-    }
-
-    /**
      * @return Collection<int, Employee>
      */
     protected function scopedEmployees(?int $branchId): Collection
     {
+        return $this->scopedEmployeeQuery($branchId)
+            ->with(['position', 'role', 'branches'])
+            ->orderBy('employees.full_name')
+            ->get();
+    }
+
+    protected function scopedEmployeeQuery(?int $branchId): Builder
+    {
         $permission = PayrollPermission::for();
 
-        $query = Employee::query()
-            ->with(['position', 'branches'])
-            ->where('status', Employee::STATUS_ACTIVE)
-            ->orderBy('full_name');
+        $query = Employee::query()->where('employees.status', Employee::STATUS_ACTIVE);
 
         if ($permission->isEmployeeOnly()) {
-            $own = $permission->ownEmployee();
-            $query->where('id', $own?->id ?? 0);
+            $query->where('employees.id', $permission->ownEmployee()?->id ?? 0);
         } elseif ($permission->isManager()) {
             $managed = $permission->managedBranchIds();
             $query->whereHas('branches', fn ($q) => $q->whereIn('branches.id', $managed));
@@ -968,20 +1123,6 @@ class PayrollService
             $query->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
         }
 
-        return $query->get();
-    }
-
-    protected function shiftMinutes(Shift $shift): int
-    {
-        $start = substr((string) $shift->start_time, 0, 5);
-        $end = substr((string) $shift->end_time, 0, 5);
-        [$sh, $sm] = array_map('intval', explode(':', $start));
-        [$eh, $em] = array_map('intval', explode(':', $end));
-        $mins = ($eh * 60 + $em) - ($sh * 60 + $sm);
-        if ($mins <= 0) {
-            $mins += 24 * 60;
-        }
-
-        return max(0, $mins - (int) $shift->break_minutes);
+        return $query;
     }
 }

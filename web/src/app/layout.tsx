@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AdminShell } from "@/components/admin/AdminShell";
 import { AppearanceProvider } from "@/components/appearance/AppearanceProvider";
 import "./globals.css";
 
@@ -26,7 +27,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: chunkReloadBoot }} />
       </head>
       <body className="min-h-full bg-[#F3F4F6] font-sans text-slate-800">
-        <AppearanceProvider>{children}</AppearanceProvider>
+        <AppearanceProvider>
+          <AdminShell>{children}</AdminShell>
+        </AppearanceProvider>
       </body>
     </html>
   );

@@ -29,9 +29,10 @@ class ShiftController extends Controller
         $date = $request->query('date');
 
         return response()->json([
-            'data' => collect($paginator->items())->map(
-                fn ($shift) => $this->shifts->payload($shift, is_string($date) ? $date : null)
-            )->values(),
+            'data' => $this->shifts->payloads(
+                $paginator->items(),
+                is_string($date) ? $date : null,
+            ),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),

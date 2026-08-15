@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { useStaff } from "@/components/staff/StaffShell";
 import {
-  fetchAttendances,
+  fetchMyAttendances,
   statusLabel,
   statusTone,
   type AttendanceRow,
@@ -26,60 +25,39 @@ function recentDates(count: number): string[] {
   return out;
 }
 
+function rowForDate(rows: AttendanceRow[], date: string): AttendanceRow | null {
+  return rows.find((r) => r.work_date === date) ?? null;
+}
+
 export default function StaffAttendancePage() {
-  const { session } = useStaff();
   const dates = useMemo(() => recentDates(14), []);
   const [selected, setSelected] = useState(dates[0]);
-  const [row, setRow] = useState<AttendanceRow | null>(null);
-  const [history, setHistory] = useState<
-    { date: string; row: AttendanceRow | null }[]
-  >([]);
+  const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadDay = useCallback(
-    async (date: string) => {
+  useEffect(() => {
+    async function load() {
       setLoading(true);
       try {
-        const res = await fetchAttendances({ date, per_page: 50 });
-        const mine =
-          res.data.find((r) => r.employee_id === session.employeeId) ??
-          res.data[0] ??
-          null;
-        setRow(mine);
+        const data = await fetchMyAttendances({
+          from: dates[dates.length - 1],
+          to: dates[0],
+        });
+        setRows(data);
       } catch {
-        setRow(null);
+        setRows([]);
       } finally {
         setLoading(false);
       }
-    },
-    [session.employeeId],
-  );
-
-  useEffect(() => {
-    void loadDay(selected);
-  }, [selected, loadDay]);
-
-  useEffect(() => {
-    async function loadHistory() {
-      const slice = dates.slice(0, 7);
-      const results = await Promise.all(
-        slice.map(async (date) => {
-          try {
-            const res = await fetchAttendances({ date, per_page: 50 });
-            const mine =
-              res.data.find((r) => r.employee_id === session.employeeId) ??
-              res.data[0] ??
-              null;
-            return { date, row: mine };
-          } catch {
-            return { date, row: null };
-          }
-        }),
-      );
-      setHistory(results);
     }
-    void loadHistory();
-  }, [dates, session.employeeId]);
+    void load();
+  }, [dates]);
+
+  const row = rowForDate(rows, selected);
+  const history = dates.slice(0, 7).map((date) => ({
+    date,
+    row: rowForDate(rows, date),
+  }));
 
   return (
     <div className="px-4 pt-6">

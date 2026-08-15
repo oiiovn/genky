@@ -3,7 +3,9 @@
 namespace Tests\Feature\Attendance;
 
 use App\Models\AttendanceLog;
-use App\Models\Shift;
+use App\Models\Employee;
+use App\Models\OrganizationUser;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -63,27 +65,16 @@ class AttendanceModuleTest extends TestCase
         $this->withToken($ctx['token'])
             ->getJson('/api/attendances/dashboard?date='.now()->toDateString())
             ->assertOk()
-            ->assertJsonPath('data.total', 1)
-            ->assertJsonPath('data.not_checked_in', 1);
+            ->assertJsonPath('data.total', 0)
+            ->assertJsonPath('data.not_checked_in', 0);
 
         $this->app['auth']->forgetGuards();
 
         $this->withToken($ctx['token'])
             ->getJson('/api/attendances?date='.now()->toDateString())
             ->assertOk()
-            ->assertJsonPath('meta.total', 1)
-            ->assertJsonPath('data.0.id', null)
-            ->assertJsonPath('data.0.ui_status', 'not_checked_in');
-
-        $this->app['auth']->forgetGuards();
-
-        $this->withToken($ctx['token'])
-            ->deleteJson('/api/attendances/synthetic', [
-                'employee_id' => $employee['id'],
-                'branch_id' => $ctx['branch_id'],
-                'work_date' => now()->toDateString(),
-            ])
-            ->assertOk();
+            ->assertJsonPath('meta.total', 0)
+            ->assertJsonCount(0, 'data');
 
         $from = now()->startOfWeek()->toDateString();
         $to = now()->toDateString();
@@ -93,6 +84,14 @@ class AttendanceModuleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('meta.total', 0)
             ->assertJsonCount(0, 'data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances/overview?date='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonPath('data.dashboard.total', 0)
+            ->assertJsonPath('data.dashboard.not_checked_in', 0)
+            ->assertJsonStructure(['data' => ['dashboard', 'shifts']]);
     }
 
     public function test_check_in_and_check_out_flow(): void
@@ -160,6 +159,136 @@ class AttendanceModuleTest extends TestCase
             ->getJson('/api/attendances/shifts/today')
             ->assertOk()
             ->assertJsonStructure(['data' => [['id', 'name', 'checked', 'total']]]);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances/overview')
+            ->assertOk()
+            ->assertJsonPath('data.dashboard.checked_in', 1)
+            ->assertJsonPath('data.dashboard.working', 0)
+            ->assertJsonStructure(['data' => ['shifts' => [['id', 'name', 'checked', 'total']]]]);
+    }
+
+    public function test_list_paginates_and_filters_on_sql(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $an = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Nguyễn Văn An',
+            'email' => 'an-page@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $binh = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Trần Thị Bình',
+            'email' => 'binh-page@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $an['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $binh['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.now()->toDateString().'&per_page=1&page=1')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.last_page', 2)
+            ->assertJsonCount(1, 'data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.now()->toDateString().'&search=Bình')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.full_name', 'Trần Thị Bình');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.now()->toDateString().'&status=working')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_mine_returns_only_current_employee(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $an = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Nguyễn Văn An',
+            'email' => 'an-mine@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $binh = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Trần Thị Bình',
+            'email' => 'binh-mine@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $an['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $binh['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated();
+
+        $staffUser = User::factory()->create([
+            'email' => 'staff-att@fresh.test',
+            'password' => 'Password1!',
+        ]);
+
+        OrganizationUser::query()->create([
+            'organization_id' => $ctx['org_id'],
+            'user_id' => $staffUser->id,
+            'role' => OrganizationUser::ROLE_EMPLOYEE,
+            'is_default' => true,
+        ]);
+
+        $staffUser->forceFill([
+            'current_organization_id' => $ctx['org_id'],
+        ])->save();
+
+        Employee::query()->withoutGlobalScopes()->whereKey($an['id'])->update([
+            'user_id' => $staffUser->id,
+        ]);
+
+        $login = $this->postJson('/api/auth/login', [
+            'login' => 'staff-att@fresh.test',
+            'password' => 'Password1!',
+        ])->json();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($login['access_token'])
+            ->getJson('/api/attendances/mine?date='.now()->toDateString())
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.employee_id', $an['id']);
+
+        $from = now()->subDays(6)->toDateString();
+        $to = now()->toDateString();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($login['access_token'])
+            ->getJson('/api/attendances/mine?from='.$from.'&to='.$to)
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.employee_id', $an['id']);
     }
 
     public function test_update_creates_adjustment(): void

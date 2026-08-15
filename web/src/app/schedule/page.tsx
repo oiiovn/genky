@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { AssignShiftModal } from "@/components/schedule/AssignShiftModal";
@@ -14,13 +14,6 @@ import {
   ScheduleWeekGrid,
   type ScheduleRow,
 } from "@/components/schedule/ScheduleWeekGrid";
-import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import {
   createScheduleAssignment,
@@ -36,14 +29,13 @@ import {
   toIsoDate,
 } from "@/lib/schedule-utils";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
-import type { DashboardData } from "@/types/dashboard";
 import { nowInAppTz, todayIso } from "@/lib/timezone";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export default function SchedulePage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý lịch làm việc của nhân viên",
+  );
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<ScheduleAssignment[]>([]);
@@ -100,51 +92,27 @@ export default function SchedulePage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList, shiftList, empList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
+        const [shiftList, empList] = await Promise.all([
           fetchShifts({ status: "active", per_page: 50 }).catch(() => ({
             data: [] as Shift[],
-            meta: { current_page: 1, last_page: 1, per_page: 50, total: 0 },
           })),
           fetchEmployees({ status: "active", per_page: 100 }).catch(() => ({
             data: [] as Employee[],
-            meta: { current_page: 1, last_page: 1, per_page: 100, total: 0 },
           })),
         ]);
-        setShell(dashboard);
-        setBranches(branchList);
         setShifts(shiftList.data);
         setEmployees(empList.data);
+      } finally {
         setLoading(false);
-      } catch {
-        setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
-  }, [router]);
+  }, []);
 
   useEffect(() => {
-    if (!shell) return;
     void loadAssignments();
-  }, [shell, loadAssignments]);
+  }, [loadAssignments]);
 
   const filteredEmployees = useMemo(() => {
     let list = employees;
@@ -254,17 +222,6 @@ export default function SchedulePage() {
     };
   }, [assignments, shifts, rows, weekDays]);
 
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý lịch làm việc của nhân viên",
-      },
-    };
-  }, [shell]);
-
   async function handleAssign(payload: {
     shift_id: number;
     branch_id: number;
@@ -308,7 +265,7 @@ export default function SchedulePage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

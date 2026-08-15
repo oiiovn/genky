@@ -194,6 +194,18 @@ class ShiftModuleTest extends TestCase
 
         $this->app['auth']->forgetGuards();
 
+        $listed = $this->withToken($ctx['token'])
+            ->getJson('/api/shifts')
+            ->assertOk()
+            ->json('data');
+
+        $this->assertSame(
+            1,
+            (int) collect($listed)->firstWhere('id', $shiftId)['employee_count'],
+        );
+
+        $this->app['auth']->forgetGuards();
+
         $this->withToken($ctx['token'])
             ->deleteJson('/api/shift-assignments/'.$assignment['id'])
             ->assertOk();

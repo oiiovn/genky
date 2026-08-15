@@ -115,36 +115,38 @@ export const checkToneClass: Record<CheckLabelTone, string> = {
   none: "text-slate-400",
 };
 
-export async function fetchAttendanceDashboard(params: {
+export async function fetchAttendanceOverview(params: {
   date?: string;
   branch_id?: number | "";
-}): Promise<AttendanceStats> {
+}): Promise<{ dashboard: AttendanceStats; shifts: ShiftTodayCard[] }> {
   const q = new URLSearchParams();
   if (params.date) q.set("date", params.date);
   if (params.branch_id) q.set("branch_id", String(params.branch_id));
-  const res = await fetch(`${apiUrl()}/attendances/dashboard?${q}`, {
+  const res = await fetch(`${apiUrl()}/attendances/overview?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
-  return json.data as AttendanceStats;
+  return json.data as { dashboard: AttendanceStats; shifts: ShiftTodayCard[] };
 }
 
-export async function fetchAttendanceShiftsToday(params: {
+export async function fetchMyAttendances(params: {
   date?: string;
-  branch_id?: number | "";
-}): Promise<ShiftTodayCard[]> {
+  from?: string;
+  to?: string;
+}): Promise<AttendanceRow[]> {
   const q = new URLSearchParams();
-  if (params.date) q.set("date", params.date);
-  if (params.branch_id) q.set("branch_id", String(params.branch_id));
-  const res = await fetch(`${apiUrl()}/attendances/shifts/today?${q}`, {
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  if (!params.from && !params.to && params.date) q.set("date", params.date);
+  const res = await fetch(`${apiUrl()}/attendances/mine?${q}`, {
     headers: authHeaders(false),
     cache: "no-store",
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
-  return (json.data ?? []) as ShiftTodayCard[];
+  return (json.data ?? []) as AttendanceRow[];
 }
 
 export async function fetchAttendances(params: {

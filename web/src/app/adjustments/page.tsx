@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   ChevronLeft,
@@ -10,23 +9,17 @@ import {
   Plus,
   Settings2,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { AdjustmentFormModal } from "@/components/adjustments/AdjustmentFormModal";
-import { AdjustmentSidePanel } from "@/components/adjustments/AdjustmentSidePanel";
 import { AdjustmentStatsCards } from "@/components/adjustments/AdjustmentStatsCards";
 import {
   AdjustmentFilters,
   AdjustmentRecentTables,
   type AdjustmentTab,
 } from "@/components/adjustments/AdjustmentTables";
-import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import {
   computeAdjustmentStats,
@@ -41,18 +34,29 @@ import {
   fetchAdjustments,
   updateAdjustment,
 } from "@/lib/adjustments-api";
-import { isStaffAppUser } from "@/lib/staff";
-import type { DashboardData } from "@/types/dashboard";
 import { currentMonth, currentYear } from "@/lib/timezone";
+
+const AdjustmentSidePanel = dynamic(
+  () =>
+    import("@/components/adjustments/AdjustmentSidePanel").then(
+      (mod) => mod.AdjustmentSidePanel,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[360px] w-full max-w-sm animate-pulse rounded-2xl bg-white" />
+    ),
+  },
+);
 
 function currentMonthParts() {
   return { year: currentYear(), month: currentMonth() };
 }
 
 export default function AdjustmentsPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý thưởng và xử phạt nhân viên",
+  );
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [records, setRecords] = useState<AdjustmentRecord[]>([]);
   const [monthStats, setMonthStats] = useState<AdjustmentStats | null>(null);
@@ -82,47 +86,18 @@ export default function AdjustmentsPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        if (isStaffAppUser(profile)) {
-          setLoading(false);
-          router.replace("/m/adjustments");
-          return;
-        }
-        const [dashboard, branchList, empList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
-          fetchEmployees({ status: "active", per_page: 100 }).catch(() => ({
-            data: [] as Employee[],
-            meta: { current_page: 1, last_page: 1, per_page: 100, total: 0 },
-          })),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
+        const empList = await fetchEmployees({
+          status: "active",
+          per_page: 100,
+        }).catch(() => ({ data: [] as Employee[] }));
         setEmployees(empList.data);
+      } finally {
         setLoading(false);
-      } catch {
-        setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  }, []);
 
   const loadRecords = useCallback(async (y: number, m: number) => {
     try {
@@ -137,11 +112,10 @@ export default function AdjustmentsPage() {
   }, [showToast]);
 
   useEffect(() => {
-    if (!shell) return;
     void loadRecords(year, month);
     setRewardPage(1);
     setPenaltyPage(1);
-  }, [year, month, shell, loadRecords]);
+  }, [year, month, loadRecords]);
 
   const departments = useMemo(() => {
     const set = new Set<string>();
@@ -214,24 +188,13 @@ export default function AdjustmentsPage() {
     Math.min(penaltyPage, lastPenaltyPage) * perPage,
   );
 
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý thưởng và xử phạt nhân viên",
-      },
-    };
-  }, [shell]);
-
   function shiftMonth(delta: number) {
     const d = new Date(year, month - 1 + delta, 1);
     setYear(d.getFullYear());
     setMonth(d.getMonth() + 1);
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

@@ -1,31 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ChevronDown, Download } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
-import { AttendanceSidePanel } from "@/components/attendance/AttendanceSidePanel";
 import { AttendanceStatsCards } from "@/components/attendance/AttendanceStatsCards";
 import { AttendanceTable } from "@/components/attendance/AttendanceTable";
 import { AttendanceRecordModal } from "@/components/attendance/AttendanceRecordModal";
 import { QuickAttendanceModal } from "@/components/attendance/QuickAttendanceModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
-import {
   deleteAttendance,
   deleteSyntheticAttendance,
   exportAttendances,
-  fetchAttendanceDashboard,
+  fetchAttendanceOverview,
   fetchAttendances,
-  fetchAttendanceShiftsToday,
   type AttendanceRow,
   type AttendanceStats,
   type AttendanceUiStatus,
@@ -33,8 +25,20 @@ import {
 } from "@/lib/attendance-api";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
-import type { DashboardData } from "@/types/dashboard";
 import { currentWeekRange } from "@/lib/timezone";
+
+const AttendanceSidePanel = dynamic(
+  () =>
+    import("@/components/attendance/AttendanceSidePanel").then(
+      (mod) => mod.AttendanceSidePanel,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[360px] w-full max-w-sm animate-pulse rounded-2xl bg-white" />
+    ),
+  },
+);
 
 const emptyStats: AttendanceStats = {
   total: 0,
@@ -45,9 +49,9 @@ const emptyStats: AttendanceStats = {
 };
 
 export default function AttendancePage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý chấm công và thời gian làm việc của nhân viên",
+  );
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeesLoaded, setEmployeesLoaded] = useState(false);
@@ -129,12 +133,12 @@ export default function AttendancePage() {
       const date = opts?.date ?? dateTo;
       const branchId = opts?.branch_id ?? branchFilter;
       try {
-        const [dash, today] = await Promise.all([
-          fetchAttendanceDashboard({ date, branch_id: branchId }),
-          fetchAttendanceShiftsToday({ date, branch_id: branchId }),
-        ]);
-        setStats(dash);
-        setShiftsToday(today);
+        const overview = await fetchAttendanceOverview({
+          date,
+          branch_id: branchId,
+        });
+        setStats(overview.dashboard);
+        setShiftsToday(overview.shifts);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Không tải được thống kê.",
@@ -146,57 +150,21 @@ export default function AttendancePage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList, shiftList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
-          fetchShifts({ per_page: 50 }).catch(() => ({
-            data: [] as Shift[],
-            meta: { current_page: 1, last_page: 1, per_page: 50, total: 0 },
-          })),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
+        const shiftList = await fetchShifts({ per_page: 50 }).catch(() => ({
+          data: [] as Shift[],
+        }));
         setShifts(shiftList.data);
+        await Promise.all([loadList({ page: 1 }), loadSummary()]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Không tải được chấm công.");
+      } finally {
         setLoading(false);
-        await Promise.all([
-          loadList({ page: 1 }),
-          loadSummary(),
-        ]);
-      } catch {
-        setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý chấm công và thời gian làm việc của nhân viên",
-      },
-    };
-  }, [shell]);
+  }, []);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -222,7 +190,7 @@ export default function AttendancePage() {
     setModalOpen(true);
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

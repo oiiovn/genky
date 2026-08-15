@@ -17,6 +17,13 @@ class EmployeeController extends Controller
     {
     }
 
+    public function stats(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => $this->employees->stats($request->only(['branch_id'])),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->employees->list($request->only([

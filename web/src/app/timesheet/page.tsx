@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -9,6 +8,7 @@ import {
   Plus,
   Settings2,
 } from "lucide-react";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { TimesheetSidePanel } from "@/components/timesheet/TimesheetSidePanel";
@@ -17,13 +17,6 @@ import {
   TimesheetTable,
   type TimesheetTab,
 } from "@/components/timesheet/TimesheetTable";
-import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
 import {
   approveTimesheets,
@@ -35,7 +28,6 @@ import {
   type TimesheetStats,
   type TimesheetStatus,
 } from "@/lib/timesheet-api";
-import type { DashboardData } from "@/types/dashboard";
 import { currentMonth, currentYear } from "@/lib/timezone";
 
 const emptyStats: TimesheetStats = {
@@ -52,9 +44,9 @@ const emptyStats: TimesheetStats = {
 };
 
 export default function TimesheetPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý bảng công và tổng hợp giờ làm của nhân viên",
+  );
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
@@ -132,57 +124,22 @@ export default function TimesheetPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList, shiftList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
-          fetchShifts({ status: "active", per_page: 50 }).catch(() => ({
-            data: [] as Shift[],
-            meta: { current_page: 1, last_page: 1, per_page: 50, total: 0 },
-          })),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
+        const shiftList = await fetchShifts({
+          status: "active",
+          per_page: 50,
+        }).catch(() => ({ data: [] as Shift[] }));
         setShifts(shiftList.data);
+      } finally {
         setLoading(false);
-      } catch {
-        setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
-  }, [router]);
+  }, []);
 
   useEffect(() => {
-    if (!shell) return;
     void loadList();
-  }, [shell, loadList, reloadKey]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý bảng công và tổng hợp giờ làm của nhân viên",
-      },
-    };
-  }, [shell]);
+  }, [loadList, reloadKey]);
 
   function shiftMonth(delta: number) {
     const d = new Date(year, month - 1 + delta, 1);
@@ -212,7 +169,7 @@ export default function TimesheetPage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

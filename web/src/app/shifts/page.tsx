@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Download, Plus, Upload } from "lucide-react";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { ShiftDetailPanel } from "@/components/shifts/ShiftDetailPanel";
@@ -10,13 +10,6 @@ import { ShiftFormModal } from "@/components/shifts/ShiftFormModal";
 import { ShiftStatsCards } from "@/components/shifts/ShiftStatsCards";
 import { ShiftTable } from "@/components/shifts/ShiftTable";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
 import {
   createShift,
   deleteShift,
@@ -28,7 +21,6 @@ import {
   type Shift,
   type ShiftSummary,
 } from "@/lib/shifts-api";
-import type { DashboardData } from "@/types/dashboard";
 
 const emptySummary: ShiftSummary = {
   total: 0,
@@ -40,10 +32,10 @@ const emptySummary: ShiftSummary = {
 };
 
 export default function ShiftsPage() {
-  const router = useRouter();
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý ca làm việc của nhân viên",
+  );
   const importRef = useRef<HTMLInputElement>(null);
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,52 +111,18 @@ export default function ShiftsPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
-        setLoading(false);
         await Promise.all([
           loadList({ search: "", status: "", page: 1 }),
           loadStats(),
         ]);
-      } catch {
+      } finally {
         setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý ca làm việc của nhân viên",
-      },
-    };
-  }, [shell]);
+  }, []);
 
   async function refreshAll() {
     await Promise.all([loadList(), loadStats()]);
@@ -249,7 +207,7 @@ export default function ShiftsPage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

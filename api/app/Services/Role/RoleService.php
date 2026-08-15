@@ -7,6 +7,7 @@ use App\Models\OrganizationUser;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Support\Access\AccessCache;
 use App\Support\Authorization\RoleManagePermission;
 use App\Support\Role\RolePermissionCatalog;
 use App\Support\Tenancy\TenantContext;
@@ -175,6 +176,8 @@ class RoleService
 
         $role->save();
 
+        AccessCache::bumpPermissions((int) $role->organization_id);
+
         return $role->fresh(['permissions'])->loadCount('employees');
     }
 
@@ -188,7 +191,9 @@ class RoleService
             ]);
         }
 
+        $orgId = (int) $role->organization_id;
         $role->delete();
+        AccessCache::bumpPermissions($orgId);
     }
 
     /**
@@ -256,6 +261,8 @@ class RoleService
             $userId => ['organization_id' => $org->id],
         ]);
 
+        AccessCache::bumpPermissions((int) $org->id);
+
         return $role->fresh(['permissions'])->loadCount('employees');
     }
 
@@ -279,6 +286,8 @@ class RoleService
             ->where('user_id', $userId)
             ->where('role_id', $role->id)
             ->update(['role_id' => null]);
+
+        AccessCache::bumpPermissions((int) $role->organization_id);
 
         return $role->fresh(['permissions'])->loadCount('employees');
     }
@@ -381,6 +390,8 @@ class RoleService
         if ($rows !== []) {
             RolePermission::query()->insert($rows);
         }
+
+        AccessCache::bumpPermissions((int) $role->organization_id);
     }
 
     /**

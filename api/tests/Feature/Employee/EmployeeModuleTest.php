@@ -93,6 +93,16 @@ class EmployeeModuleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', $id);
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->getJson('/api/employees/stats')
+            ->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.active', 1)
+            ->assertJsonPath('data.resigned', 0)
+            ->assertJsonPath('data.inactive', 0);
     }
 
     public function test_employee_role_cannot_create_and_only_sees_self(): void
@@ -148,7 +158,17 @@ class EmployeeModuleTest extends TestCase
 
         $this->withToken($login['access_token'])
             ->getJson('/api/employees')
-            ->assertForbidden();
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $employee['id']);
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($login['access_token'])
+            ->getJson('/api/employees/stats')
+            ->assertOk()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.active', 1);
     }
 
     public function test_tenant_isolation_for_employees(): void

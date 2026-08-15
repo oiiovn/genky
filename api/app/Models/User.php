@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Access\AccessCache;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -86,9 +87,18 @@ class User extends Authenticatable
             return null;
         }
 
-        return $this->memberships()
-            ->where('organization_id', $organization->id)
-            ->value('role');
+        $orgId = (int) $organization->id;
+
+        return AccessCache::rememberRequest(
+            "role:{$this->id}:{$orgId}",
+            fn () => AccessCache::rememberRole(
+                (int) $this->id,
+                $orgId,
+                fn () => $this->memberships()
+                    ->where('organization_id', $orgId)
+                    ->value('role')
+            )
+        );
     }
 
     public function belongsToOrganization(int $organizationId): bool

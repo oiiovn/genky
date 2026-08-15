@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { LeaveFormModal } from "@/components/leaves/LeaveFormModal";
 import { LeaveStatsCards } from "@/components/leaves/LeaveStatsCards";
 import { LeaveTable } from "@/components/leaves/LeaveTable";
-import { fetchDashboard, getAccessToken, me } from "@/lib/api";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import {
   fetchLeaves,
@@ -16,8 +15,6 @@ import {
   type LeaveRequest,
   type LeaveStats,
 } from "@/lib/leave-api";
-import { isStaffAppUser } from "@/lib/staff";
-import type { DashboardData } from "@/types/dashboard";
 
 const emptyStats: LeaveStats = {
   total: 0,
@@ -27,8 +24,9 @@ const emptyStats: LeaveStats = {
 };
 
 export default function LeavesPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
+  const { shell, headerData } = useAdminChrome(
+    "Duyệt và quản lý đơn nghỉ phép của nhân viên",
+  );
   const [rows, setRows] = useState<LeaveRequest[]>([]);
   const [stats, setStats] = useState<LeaveStats>(emptyStats);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -67,55 +65,22 @@ export default function LeavesPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        if (isStaffAppUser(profile)) {
-          router.replace("/m/leave");
-          return;
-        }
-        const [dashboard, empList] = await Promise.all([
-          fetchDashboard(),
-          fetchEmployees({ status: "active", per_page: 100 }).catch(() => null),
-        ]);
-        setShell(dashboard);
+        const empList = await fetchEmployees({
+          status: "active",
+          per_page: 100,
+        }).catch(() => null);
         setEmployees(empList?.data ?? []);
-      } catch {
-        router.replace("/login");
-        return;
       } finally {
         setLoading(false);
       }
     }
     void boot();
-  }, [router]);
+  }, []);
 
   useEffect(() => {
-    if (!shell) return;
     void loadList();
-  }, [shell, loadList]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Duyệt và quản lý đơn nghỉ phép của nhân viên",
-      },
-    };
-  }, [shell]);
+  }, [loadList]);
 
   async function review(id: number, next: "approved" | "rejected") {
     setBusyId(id);
@@ -130,7 +95,7 @@ export default function LeavesPage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

@@ -2,13 +2,25 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
+import dynamic from "next/dynamic";
 import { ArrowLeft, CheckCircle2, XCircle } from "lucide-react";
-import { QrScanner } from "@/components/staff/QrScanner";
 import { useStaff } from "@/components/staff/StaffShell";
 import {
   parseQrScanValue,
   scanAttendanceQr,
 } from "@/lib/attendance-qr-api";
+
+const QrScanner = dynamic(
+  () => import("@/components/staff/QrScanner").then((mod) => mod.QrScanner),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[320px] items-center justify-center rounded-3xl border border-white/10 bg-black text-sm text-slate-300">
+        Đang mở camera...
+      </div>
+    ),
+  },
+);
 
 export default function StaffScanPage() {
   const { session } = useStaff();

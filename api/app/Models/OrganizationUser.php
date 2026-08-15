@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Access\AccessCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -27,6 +28,16 @@ class OrganizationUser extends Model
         return [
             'is_default' => 'boolean',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        $flush = function (OrganizationUser $row): void {
+            AccessCache::bumpPermissions((int) $row->organization_id);
+        };
+
+        static::saved($flush);
+        static::deleted($flush);
     }
 
     public function organization(): BelongsTo

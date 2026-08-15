@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToOrganization;
+use App\Support\Access\AccessCache;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -45,6 +46,15 @@ class Employee extends Model
             'resigned_at' => 'date',
             'salary_amount' => 'integer',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(function (Employee $employee): void {
+            if ($employee->wasRecentlyCreated || $employee->wasChanged(['role_id', 'user_id'])) {
+                AccessCache::bumpPermissions((int) $employee->organization_id);
+            }
+        });
     }
 
     public function user(): BelongsTo

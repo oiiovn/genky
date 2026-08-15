@@ -2,22 +2,38 @@
 
 namespace App\Services\Timesheet;
 
-use App\Models\AttendanceLog;
 use App\Models\Employee;
-use App\Models\Shift;
-use App\Models\ShiftAssignment;
+use App\Models\MonthlyWorkSummary;
 use App\Models\TimesheetApproval;
 use App\Services\Employee\EmployeeService;
+use App\Services\Work\MonthlyWorkSummaryService;
 use App\Support\Authorization\TimesheetPermission;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class TimesheetService
 {
-    public function __construct(private readonly EmployeeService $employees)
+    /** @var array<string, true> */
+    private array $freshMonths = [];
+
+    public function __construct(
+        private readonly EmployeeService $employees,
+        private readonly MonthlyWorkSummaryService $monthly,
+    ) {
+    }
+
+    protected function ensureMonth(int $year, int $month): void
     {
+        $key = $year.'-'.$month;
+        if (isset($this->freshMonths[$key])) {
+            return;
+        }
+
+        $this->monthly->ensureFresh($year, $month);
+        $this->freshMonths[$key] = true;
     }
 
     /**
@@ -45,24 +61,24 @@ class TimesheetService
         $page = max(1, (int) ($filters['page'] ?? 1));
         $perPage = min(100, max(1, (int) ($filters['per_page'] ?? 10)));
 
-        $rows = $this->buildRows($year, $month, $filters);
-        $stats = $this->computeStats($rows, $year, $month, $filters);
-
-        $total = $rows->count();
+        $this->ensureMonth($year, $month);
+        $query = $this->filteredEmployeeQuery($year, $month, $filters);
+        $total = $this->countDistinctEmployees($query);
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min($page, $lastPage);
-        $slice = $rows->slice(($page - 1) * $perPage, $perPage)->values();
 
-        $departments = $rows
-            ->pluck('department')
-            ->filter(fn ($d) => $d && $d !== '—')
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
+        $ids = $query->clone()
+            ->select('employees.id')
+            ->orderBy('employees.full_name')
+            ->orderBy('employees.id')
+            ->forPage($page, $perPage)
+            ->pluck('employees.id');
+
+        $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
+        $rows = $this->hydrateByIds($ids, $year, $month, $branchId);
 
         return [
-            'data' => $slice->all(),
+            'data' => $rows->all(),
             'meta' => [
                 'current_page' => $page,
                 'last_page' => $lastPage,
@@ -74,12 +90,9 @@ class TimesheetService
                 'to' => $bounds['to'],
                 'label' => $bounds['label'],
             ],
-            'stats' => $stats,
-            'summary' => [
-                'approved' => $rows->where('status', TimesheetApproval::STATUS_APPROVED)->count(),
-                'pending' => $rows->where('status', TimesheetApproval::STATUS_PENDING)->count(),
-            ],
-            'departments' => $departments,
+            'stats' => $this->computeStats($year, $month, $filters),
+            'summary' => $this->approvalSummary($year, $month, $filters),
+            'departments' => $this->departmentOptions($year, $month, $filters),
         ];
     }
 
@@ -89,9 +102,8 @@ class TimesheetService
 
         $year = (int) ($filters['year'] ?? now()->year);
         $month = (int) ($filters['month'] ?? now()->month);
-        $rows = $this->buildRows($year, $month, $filters);
 
-        return $this->computeStats($rows, $year, $month, $filters);
+        return $this->computeStats($year, $month, $filters);
     }
 
     public function generate(array $data): array
@@ -106,14 +118,14 @@ class TimesheetService
             TimesheetPermission::for()->assertCanAccessBranch($branchId);
         }
 
-        $employees = $this->scopedEmployees($branchId);
+        $employeeIds = $this->scopedEmployeeQuery($branchId)->pluck('employees.id');
         $created = 0;
 
-        foreach ($employees as $employee) {
+        foreach ($employeeIds as $employeeId) {
             $row = TimesheetApproval::query()->firstOrCreate(
                 [
                     'organization_id' => TenantContext::id(),
-                    'employee_id' => $employee->id,
+                    'employee_id' => $employeeId,
                     'year' => $year,
                     'month' => $month,
                 ],
@@ -128,7 +140,7 @@ class TimesheetService
 
         return [
             'created' => $created,
-            'total_employees' => $employees->count(),
+            'total_employees' => $employeeIds->count(),
             'year' => $year,
             'month' => $month,
         ];
@@ -147,7 +159,7 @@ class TimesheetService
             $status = TimesheetApproval::STATUS_APPROVED;
         }
 
-        $allowed = $this->scopedEmployees(null)->pluck('id');
+        $allowed = $this->scopedEmployeeQuery(null)->pluck('employees.id');
         $ids = $ids->filter(fn ($id) => $allowed->contains($id))->values();
 
         $count = 0;
@@ -224,205 +236,299 @@ class TimesheetService
      */
     protected function buildRows(int $year, int $month, array $filters): Collection
     {
-        $bounds = $this->monthBounds($year, $month);
+        $this->ensureMonth($year, $month);
         $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
-        $shiftId = ! empty($filters['shift_id']) ? (int) $filters['shift_id'] : null;
-        $department = trim((string) ($filters['department'] ?? ''));
-        $status = trim((string) ($filters['status'] ?? ''));
-        $search = mb_strtolower(trim((string) ($filters['search'] ?? '')));
+        $ids = $this->filteredEmployeeQuery($year, $month, $filters)
+            ->select('employees.id')
+            ->orderBy('employees.full_name')
+            ->orderBy('employees.id')
+            ->pluck('employees.id');
 
+        return $this->hydrateByIds($ids, $year, $month, $branchId);
+    }
+
+    protected function computeStats(int $year, int $month, array $filters): array
+    {
+        $current = $this->aggregateMonth($year, $month, $filters);
+        $prev = Carbon::create($year, $month, 1)->subMonth();
+        $previous = $this->aggregateMonth((int) $prev->year, (int) $prev->month, $filters);
+
+        return [
+            'employees' => $current['employees'],
+            'work_minutes' => $current['work_minutes'],
+            'ot_minutes' => $current['ot_minutes'],
+            'avg_work_days' => $current['avg_work_days'],
+            'estimated_cost' => $current['estimated_cost'],
+            'employees_delta' => $current['employees'] - $previous['employees'],
+            'work_hours_delta' => round(($current['work_minutes'] - $previous['work_minutes']) / 60, 1),
+            'ot_delta' => round(($current['ot_minutes'] - $previous['ot_minutes']) / 60, 1),
+            'avg_days_delta' => round($current['avg_work_days'] - $previous['avg_work_days'], 1),
+            'cost_delta' => $current['estimated_cost'] - $previous['estimated_cost'],
+        ];
+    }
+
+    /**
+     * @return array{employees: int, work_minutes: int, ot_minutes: int, avg_work_days: float, estimated_cost: int}
+     */
+    protected function aggregateMonth(int $year, int $month, array $filters): array
+    {
+        $this->ensureMonth($year, $month);
+
+        $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
         if ($branchId) {
             TimesheetPermission::for()->assertCanAccessBranch($branchId);
         }
 
-        $employees = $this->scopedEmployees($branchId);
-        $employeeIds = $employees->pluck('id');
+        $query = $this->scopedEmployeeQuery($branchId);
+        $this->joinMonthSummary($query, $year, $month, $branchId);
+        $this->applyTimesheetFilters($query, $year, $month, $filters);
 
-        $logs = AttendanceLog::query()
-            ->with('shift')
-            ->whereIn('employee_id', $employeeIds)
-            ->whereBetween('work_date', [$bounds['from'], $bounds['to']])
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
-            ->get()
-            ->groupBy('employee_id');
+        $row = $query
+            ->toBase()
+            ->selectRaw('count(distinct employees.id) as employees')
+            ->selectRaw('coalesce(sum(mws.work_minutes), 0) as work_minutes')
+            ->selectRaw('coalesce(sum(mws.ot_minutes), 0) as ot_minutes')
+            ->selectRaw('avg(coalesce(mws.work_days, 0)) as avg_work_days')
+            ->selectRaw(
+                'coalesce(sum(case when employees.salary_type = ? then employees.salary_amount * coalesce(mws.work_minutes, 0) / 60.0 else (employees.salary_amount / 176.0) * coalesce(mws.work_minutes, 0) / 60.0 end), 0) as estimated_cost',
+                ['hourly']
+            )
+            ->first();
 
-        $assignments = ShiftAssignment::query()
-            ->with('shift')
-            ->whereIn('employee_id', $employeeIds)
-            ->whereBetween('date', [$bounds['from'], $bounds['to']])
-            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+        $employees = (int) ($row?->employees ?? 0);
+
+        return [
+            'employees' => $employees,
+            'work_minutes' => (int) ($row?->work_minutes ?? 0),
+            'ot_minutes' => (int) ($row?->ot_minutes ?? 0),
+            'avg_work_days' => $employees > 0 ? round((float) ($row?->avg_work_days ?? 0), 1) : 0.0,
+            'estimated_cost' => (int) round((float) ($row?->estimated_cost ?? 0)),
+        ];
+    }
+
+    protected function joinMonthSummary(Builder $query, int $year, int $month, ?int $branchId): void
+    {
+        $orgId = TenantContext::id();
+        $query->leftJoin('monthly_work_summaries as mws', function ($join) use ($year, $month, $branchId, $orgId) {
+            $join->on('mws.employee_id', '=', 'employees.id')
+                ->where('mws.year', '=', $year)
+                ->where('mws.month', '=', $month)
+                ->where('mws.branch_id', '=', $branchId ?: 0);
+            if ($orgId) {
+                $join->where('mws.organization_id', '=', $orgId);
+            }
+        });
+    }
+
+    protected function applyTimesheetFilters(Builder $query, int $year, int $month, array $filters): void
+    {
+        $department = trim((string) ($filters['department'] ?? ''));
+        $shiftId = ! empty($filters['shift_id']) ? (int) $filters['shift_id'] : null;
+        $status = trim((string) ($filters['status'] ?? ''));
+        $search = trim((string) ($filters['search'] ?? ''));
+
+        if ($department !== '') {
+            $query->whereHas('position', fn (Builder $q) => $q->where('name', $department));
+        }
+
+        if ($search !== '') {
+            $like = '%'.addcslashes($search, '%_\\').'%';
+            $query->where(function (Builder $inner) use ($like) {
+                $inner->where('employees.full_name', 'like', $like)
+                    ->orWhere('employees.employee_code', 'like', $like)
+                    ->orWhereHas('position', fn (Builder $position) => $position->where('name', 'like', $like));
+            });
+        }
+
+        if ($shiftId) {
+            $needle = '"id":'.$shiftId;
+            $query->where(function (Builder $inner) use ($needle) {
+                $inner->where('mws.shifts', 'like', '%'.$needle.',%')
+                    ->orWhere('mws.shifts', 'like', '%'.$needle.'}%');
+            });
+        }
+
+        if ($status === '') {
+            return;
+        }
+
+        $this->joinApprovals($query, $year, $month);
+
+        if ($status === TimesheetApproval::STATUS_APPROVED) {
+            $query->where('ta.status', TimesheetApproval::STATUS_APPROVED);
+        } elseif ($status === TimesheetApproval::STATUS_PENDING) {
+            $query->where(function (Builder $inner) {
+                $inner->whereNull('ta.id')
+                    ->orWhere('ta.status', TimesheetApproval::STATUS_PENDING);
+            });
+        }
+    }
+
+    protected function filteredEmployeeQuery(int $year, int $month, array $filters): Builder
+    {
+        $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
+        if ($branchId) {
+            TimesheetPermission::for()->assertCanAccessBranch($branchId);
+        }
+
+        $query = $this->scopedEmployeeQuery($branchId);
+        $this->joinMonthSummary($query, $year, $month, $branchId);
+        $this->applyTimesheetFilters($query, $year, $month, $filters);
+
+        return $query;
+    }
+
+    protected function countDistinctEmployees(Builder $query): int
+    {
+        return (int) $query->clone()
+            ->toBase()
+            ->getCountForPagination(['employees.id']);
+    }
+
+    /**
+     * @return array{approved: int, pending: int}
+     */
+    protected function approvalSummary(int $year, int $month, array $filters): array
+    {
+        $query = $this->filteredEmployeeQuery($year, $month, $filters);
+        $this->joinApprovals($query, $year, $month);
+
+        $row = $query
+            ->toBase()
+            ->selectRaw(
+                "coalesce(sum(case when ta.status = ? then 1 else 0 end), 0) as approved",
+                [TimesheetApproval::STATUS_APPROVED]
+            )
+            ->selectRaw('count(distinct employees.id) as total')
+            ->first();
+
+        $total = (int) ($row?->total ?? 0);
+        $approved = (int) ($row?->approved ?? 0);
+
+        return [
+            'approved' => $approved,
+            'pending' => max(0, $total - $approved),
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function departmentOptions(int $year, int $month, array $filters): array
+    {
+        return $this->filteredEmployeeQuery($year, $month, $filters)
+            ->leftJoin('positions as pos_dept', 'pos_dept.id', '=', 'employees.position_id')
+            ->whereNotNull('pos_dept.name')
+            ->where('pos_dept.name', '!=', '—')
+            ->distinct()
+            ->orderBy('pos_dept.name')
+            ->pluck('pos_dept.name')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  Collection<int, int>  $ids
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function hydrateByIds(Collection $ids, int $year, int $month, ?int $branchId): Collection
+    {
+        $ids = $ids->map(fn ($id) => (int) $id)->unique()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $employees = Employee::query()
+            ->with(['position', 'role', 'branches'])
+            ->whereIn('id', $ids)
             ->get()
-            ->groupBy('employee_id');
+            ->keyBy('id');
+
+        $summaries = MonthlyWorkSummary::query()
+            ->where('year', $year)
+            ->where('month', $month)
+            ->where('branch_id', $branchId ?: 0)
+            ->whereIn('employee_id', $ids)
+            ->get()
+            ->keyBy('employee_id');
 
         $approvals = TimesheetApproval::query()
-            ->whereIn('employee_id', $employeeIds)
+            ->whereIn('employee_id', $ids)
             ->where('year', $year)
             ->where('month', $month)
             ->get()
             ->keyBy('employee_id');
 
-        $rows = $employees->map(function (Employee $employee) use ($logs, $assignments, $approvals) {
-            /** @var Collection<int, AttendanceLog> $empLogs */
-            $empLogs = $logs->get($employee->id, collect());
-            /** @var Collection<int, ShiftAssignment> $empAssignments */
-            $empAssignments = $assignments->get($employee->id, collect());
-
-            $leaveDays = $empLogs->where('status', AttendanceLog::STATUS_LEAVE)->count();
-            $otherLeave = $empLogs->where('status', AttendanceLog::STATUS_ABSENT)->count();
-
-            $workedLogs = $empLogs->filter(function (AttendanceLog $log) {
-                return in_array($log->status, [
-                    AttendanceLog::STATUS_WORKING,
-                    AttendanceLog::STATUS_CHECKED_OUT,
-                ], true) || $log->check_in_at !== null;
-            });
-
-            $workDates = $workedLogs->map(fn (AttendanceLog $log) => $log->work_date?->toDateString())->filter()->unique();
-            $workMinutes = 0;
-            $shiftMap = [];
-
-            if ($workedLogs->isNotEmpty()) {
-                foreach ($workedLogs as $log) {
-                    $mins = $log->total_minutes;
-                    if ($mins === null && $log->check_in_at && $log->check_out_at) {
-                        $mins = max(0, $log->check_in_at->diffInMinutes($log->check_out_at) - (int) $log->break_minutes);
-                    }
-                    $workMinutes += (int) ($mins ?? 0);
-
-                    if ($log->shift) {
-                        $shiftMap[$log->shift->id] = $this->shiftBadge($log->shift);
-                    }
-                }
-            } else {
-                $workDates = $empAssignments->map(fn (ShiftAssignment $a) => $a->date?->toDateString())->filter()->unique();
-                foreach ($empAssignments as $assignment) {
-                    if (! $assignment->shift) {
-                        continue;
-                    }
-                    $workMinutes += $this->shiftMinutes($assignment->shift);
-                    $shiftMap[$assignment->shift->id] = $this->shiftBadge($assignment->shift);
-                }
+        return $ids->map(function (int $id) use ($employees, $summaries, $approvals) {
+            $employee = $employees->get($id);
+            if (! $employee) {
+                return null;
             }
 
-            // Include shifts from assignments even when attendance exists
-            foreach ($empAssignments as $assignment) {
-                if ($assignment->shift && ! isset($shiftMap[$assignment->shift->id])) {
-                    $shiftMap[$assignment->shift->id] = $this->shiftBadge($assignment->shift);
-                }
-            }
-
-            $workDays = $workDates->count();
-            $standard = $workDays * 8 * 60;
-            $otMinutes = max(0, $workMinutes - $standard);
-            $approval = $approvals->get($employee->id);
-            $rowStatus = $approval?->status ?? TimesheetApproval::STATUS_PENDING;
-
-            return [
-                'id' => $employee->id,
-                'employee' => $this->employees->payload($employee),
-                'department' => $employee->position?->name ?? '—',
-                'shifts' => array_values($shiftMap),
-                'work_days' => $workDays,
-                'work_minutes' => $workMinutes,
-                'ot_minutes' => $otMinutes,
-                'leave_days' => $leaveDays,
-                'other_leave_days' => $otherLeave,
-                'total_days' => $workDays + $leaveDays + $otherLeave,
-                'status' => $rowStatus,
-                'branch_ids' => $employee->branches->pluck('id')->values()->all(),
-                'approved_at' => $approval?->approved_at?->toIso8601String(),
-            ];
-        });
-
-        return $rows
-            ->filter(function (array $row) use ($department, $shiftId, $status, $search) {
-                if ($department !== '' && $row['department'] !== $department) {
-                    return false;
-                }
-                if ($shiftId && ! collect($row['shifts'])->contains(fn ($s) => (int) $s['id'] === $shiftId)) {
-                    return false;
-                }
-                if ($status !== '' && $row['status'] !== $status) {
-                    return false;
-                }
-                if ($search !== '') {
-                    $hay = mb_strtolower(
-                        ($row['employee']['full_name'] ?? '').' '.
-                        ($row['employee']['employee_code'] ?? '').' '.
-                        $row['department']
-                    );
-                    if (! str_contains($hay, $search)) {
-                        return false;
-                    }
-                }
-
-                return true;
-            })
-            ->values();
+            return $this->hydrateRow(
+                $employee,
+                $summaries->get($id),
+                $approvals->get($id),
+            );
+        })->filter()->values();
     }
 
-    protected function computeStats(Collection $rows, int $year, int $month, array $filters): array
+    protected function joinApprovals(Builder $query, int $year, int $month): void
     {
-        $employees = $rows->count();
-        $workMinutes = (int) $rows->sum('work_minutes');
-        $otMinutes = (int) $rows->sum('ot_minutes');
-        $avgWorkDays = $employees > 0 ? round($rows->sum('work_days') / $employees, 1) : 0.0;
-        $estimatedCost = (int) round($rows->sum(function (array $row) {
-            $salaryType = $row['employee']['salary_type'] ?? 'monthly';
-            $amount = (float) ($row['employee']['salary_amount'] ?? 0);
-            $hourly = $salaryType === 'hourly' ? $amount : $amount / 176;
+        $joins = $query->getQuery()->joins ?? [];
+        foreach ($joins as $join) {
+            if (($join->table ?? '') === 'timesheet_approvals as ta') {
+                return;
+            }
+        }
 
-            return ($hourly * $row['work_minutes']) / 60;
-        }));
+        $orgId = TenantContext::id();
+        $query->leftJoin('timesheet_approvals as ta', function ($join) use ($year, $month, $orgId) {
+            $join->on('ta.employee_id', '=', 'employees.id')
+                ->where('ta.year', '=', $year)
+                ->where('ta.month', '=', $month);
+            if ($orgId) {
+                $join->where('ta.organization_id', '=', $orgId);
+            }
+        });
+    }
 
-        $prev = Carbon::create($year, $month, 1)->subMonth();
-        $prevRows = $this->buildRows((int) $prev->year, (int) $prev->month, $filters);
-        $prevStats = [
-            'employees' => $prevRows->count(),
-            'work_minutes' => (int) $prevRows->sum('work_minutes'),
-            'ot_minutes' => (int) $prevRows->sum('ot_minutes'),
-            'avg_work_days' => $prevRows->count() > 0
-                ? round($prevRows->sum('work_days') / $prevRows->count(), 1)
-                : 0.0,
-            'estimated_cost' => (int) round($prevRows->sum(function (array $row) {
-                $salaryType = $row['employee']['salary_type'] ?? 'monthly';
-                $amount = (float) ($row['employee']['salary_amount'] ?? 0);
-                $hourly = $salaryType === 'hourly' ? $amount : $amount / 176;
-
-                return ($hourly * $row['work_minutes']) / 60;
-            })),
-        ];
+    protected function hydrateRow(
+        Employee $employee,
+        ?MonthlyWorkSummary $summary,
+        ?TimesheetApproval $approval,
+    ): array {
+        $workDays = (int) ($summary?->work_days ?? 0);
+        $workMinutes = (int) ($summary?->work_minutes ?? 0);
+        $otMinutes = (int) ($summary?->ot_minutes ?? 0);
+        $leaveDays = (int) ($summary?->leave_days ?? 0);
+        $otherLeave = (int) ($summary?->other_leave_days ?? 0);
 
         return [
-            'employees' => $employees,
+            'id' => $employee->id,
+            'employee' => $this->employees->payload($employee),
+            'department' => $employee->position?->name ?? '—',
+            'shifts' => $summary?->shifts ?? [],
+            'work_days' => $workDays,
             'work_minutes' => $workMinutes,
             'ot_minutes' => $otMinutes,
-            'avg_work_days' => $avgWorkDays,
-            'estimated_cost' => $estimatedCost,
-            'employees_delta' => $employees - $prevStats['employees'],
-            'work_hours_delta' => round(($workMinutes - $prevStats['work_minutes']) / 60, 1),
-            'ot_delta' => round(($otMinutes - $prevStats['ot_minutes']) / 60, 1),
-            'avg_days_delta' => round($avgWorkDays - $prevStats['avg_work_days'], 1),
-            'cost_delta' => $estimatedCost - $prevStats['estimated_cost'],
+            'leave_days' => $leaveDays,
+            'other_leave_days' => $otherLeave,
+            'total_days' => $workDays + $leaveDays + $otherLeave,
+            'status' => $approval?->status ?? TimesheetApproval::STATUS_PENDING,
+            'branch_ids' => $employee->branches->pluck('id')->values()->all(),
+            'approved_at' => $approval?->approved_at?->toIso8601String(),
         ];
     }
 
-    /**
-     * @return Collection<int, Employee>
-     */
-    protected function scopedEmployees(?int $branchId): Collection
+    protected function scopedEmployeeQuery(?int $branchId): Builder
     {
         $permission = TimesheetPermission::for();
 
-        $query = Employee::query()
-            ->with(['position', 'branches'])
-            ->where('status', Employee::STATUS_ACTIVE)
-            ->orderBy('full_name');
+        $query = Employee::query()->where('employees.status', Employee::STATUS_ACTIVE);
 
         if ($permission->isEmployeeOnly()) {
-            $own = $permission->ownEmployee();
-            $query->where('id', $own?->id ?? 0);
+            $query->where('employees.id', $permission->ownEmployee()?->id ?? 0);
         } elseif ($permission->isManager()) {
             $managed = $permission->managedBranchIds();
             $query->whereHas('branches', fn ($q) => $q->whereIn('branches.id', $managed));
@@ -433,31 +539,6 @@ class TimesheetService
             $query->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
         }
 
-        return $query->get();
-    }
-
-    protected function shiftBadge(Shift $shift): array
-    {
-        return [
-            'id' => $shift->id,
-            'name' => $shift->name,
-            'color' => $shift->color ?? '#6366F1',
-            'start_time' => substr((string) $shift->start_time, 0, 5),
-            'end_time' => substr((string) $shift->end_time, 0, 5),
-        ];
-    }
-
-    protected function shiftMinutes(Shift $shift): int
-    {
-        $start = substr((string) $shift->start_time, 0, 5);
-        $end = substr((string) $shift->end_time, 0, 5);
-        [$sh, $sm] = array_map('intval', explode(':', $start));
-        [$eh, $em] = array_map('intval', explode(':', $end));
-        $mins = ($eh * 60 + $em) - ($sh * 60 + $sm);
-        if ($mins <= 0) {
-            $mins += 24 * 60;
-        }
-
-        return max(0, $mins - (int) $shift->break_minutes);
+        return $query;
     }
 }

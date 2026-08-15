@@ -10,7 +10,13 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
-import { clearTokens, getAccessToken, logout as apiLogout, me } from "@/lib/api";
+import {
+  clearTokens,
+  getAccessToken,
+  logout as apiLogout,
+  me,
+  refreshMe,
+} from "@/lib/api";
 import { describeFetchError, isNetworkError } from "@/lib/api-base";
 import { hardReplace } from "@/lib/nav";
 import {
@@ -40,13 +46,13 @@ export function StaffShell({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const boot = useCallback(async () => {
+  const boot = useCallback(async (force = false) => {
     if (!getAccessToken()) {
       hardReplace("/login");
       return;
     }
     try {
-      const profile = await me();
+      const profile = force ? await refreshMe() : await me();
       if (!isStaffAppUser(profile)) {
         hardReplace("/dashboard");
         return;
@@ -83,7 +89,9 @@ export function StaffShell({ children }: { children: ReactNode }) {
     if (!session) return null;
     return {
       session,
-      refresh: boot,
+      refresh: async () => {
+        await boot(true);
+      },
       logout: async () => {
         await apiLogout();
         hardReplace("/login");

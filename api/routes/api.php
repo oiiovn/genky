@@ -55,6 +55,7 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     Route::put('me/preferences', [UserPreferencesController::class, 'update']);
     Route::patch('me/preferences', [UserPreferencesController::class, 'update']);
     Route::post('me/preferences/sidebar/toggle', [UserPreferencesController::class, 'toggleSidebar']);
+    Route::get('shell', [DashboardController::class, 'shell']);
     Route::get('dashboard', [DashboardController::class, 'overview']);
 
     Route::get('organization', [OrganizationController::class, 'show']);
@@ -118,6 +119,7 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
         Route::delete('positions/{position}', [PositionController::class, 'destroy']);
 
         Route::get('employees', [EmployeeController::class, 'index']);
+        Route::get('employees/stats', [EmployeeController::class, 'stats']);
         Route::post('employees', [EmployeeController::class, 'store']);
         Route::get('employees/{employee}', [EmployeeController::class, 'show']);
         Route::put('employees/{employee}', [EmployeeController::class, 'update']);
@@ -148,8 +150,10 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
 
     // Feature: attendance
     Route::middleware(['feature:attendance'])->group(function () {
+        Route::get('attendances/overview', [AttendanceController::class, 'overview']);
         Route::get('attendances/dashboard', [AttendanceController::class, 'dashboard']);
         Route::get('attendances/shifts/today', [AttendanceController::class, 'shiftsToday']);
+        Route::get('attendances/mine', [AttendanceController::class, 'mine']);
         Route::get('attendances/export', [AttendanceController::class, 'export']);
         Route::post('attendances/check-in', [AttendanceController::class, 'checkIn']);
         Route::post('attendances/check-out', [AttendanceController::class, 'checkOut']);

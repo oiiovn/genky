@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Html5Qrcode } from "html5-qrcode";
+import type { Html5Qrcode } from "html5-qrcode";
 
 let cameraQueue: Promise<void> = Promise.resolve();
 
@@ -44,6 +44,7 @@ export function QrScanner({
 
     cameraQueue = cameraQueue.then(async () => {
       if (cancelled) return;
+      const { Html5Qrcode } = await import("html5-qrcode");
       scanner = new Html5Qrcode(elementId);
       try {
         await scanner.start(

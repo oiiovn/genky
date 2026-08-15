@@ -14,6 +14,8 @@ use App\Support\Authorization\AttendancePermission;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -22,125 +24,124 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceService
 {
+    /** @var array<string, Collection<int, array<string, mixed>>> */
+    protected array $rosterMemo = [];
+
+    public function overview(string $date, ?int $branchId = null): array
+    {
+        AttendancePermission::for()->assertCanViewAny();
+        $roster = $this->roster($date, $branchId);
+
+        return [
+            'dashboard' => $this->statsFromRoster($roster),
+            'shifts' => $this->shiftCardsFromRoster($date, $roster),
+        ];
+    }
+
     public function dashboard(string $date, ?int $branchId = null): array
     {
         AttendancePermission::for()->assertCanViewAny();
-        $rows = $this->roster($date, $branchId);
 
-        $total = $rows->count();
-        $checkedIn = $rows->filter(
-            fn ($r) => in_array($r['ui_status'], ['working', 'checked_out'], true)
-        )->count();
-        $working = $rows->filter(fn ($r) => $r['ui_status'] === 'working')->count();
-        $notCheckedIn = $rows->filter(fn ($r) => $r['ui_status'] === 'not_checked_in')->count();
-        $onLeave = $rows->filter(fn ($r) => $r['ui_status'] === 'on_leave')->count();
-
-        return [
-            'total' => $total,
-            'checked_in' => $checkedIn,
-            'working' => $working,
-            'not_checked_in' => $notCheckedIn,
-            'checked_out' => max(0, $checkedIn - $working),
-            'on_leave' => $onLeave,
-        ];
+        return $this->statsFromRoster($this->roster($date, $branchId));
     }
 
     public function shiftsToday(string $date, ?int $branchId = null): array
     {
         AttendancePermission::for()->assertCanViewAny();
-        $permission = AttendancePermission::for();
 
-        $shifts = Shift::query()
-            ->where('status', Shift::STATUS_ACTIVE)
-            ->orderBy('start_time')
-            ->get();
-
-        $roster = $this->roster($date, $branchId);
-
-        return $shifts->map(function (Shift $shift) use ($roster, $date) {
-            $rows = $roster->filter(fn ($r) => (int) ($r['shift_id'] ?? 0) === (int) $shift->id);
-            $total = max($rows->count(), 0);
-            $checked = $rows->filter(
-                fn ($r) => in_array($r['ui_status'], ['working', 'checked_out'], true)
-            )->count();
-            $ontime = $rows->filter(fn ($r) => in_array($r['check_in_tone'], ['early', 'ontime'], true))->count();
-            $late = $rows->filter(fn ($r) => $r['check_in_tone'] === 'late')->count();
-            $missing = $rows->filter(fn ($r) => $r['ui_status'] === 'not_checked_in')->count();
-
-            $status = 'upcoming';
-            if ($shift->isOngoingAt(Carbon::parse($date.' '.now()->format('H:i:s')))) {
-                $status = 'ongoing';
-            } elseif ($this->shiftEnded($shift)) {
-                $status = 'done';
-            }
-
-            return [
-                'id' => $shift->id,
-                'name' => $shift->name,
-                'time' => substr((string) $shift->start_time, 0, 5).' - '.substr((string) $shift->end_time, 0, 5),
-                'status' => $status,
-                'checked' => $checked,
-                'total' => $total > 0 ? $total : 0,
-                'ontime' => $ontime,
-                'late' => $late,
-                'missing' => $missing,
-            ];
-        })->values()->all();
+        return $this->shiftCardsFromRoster($date, $this->roster($date, $branchId));
     }
 
     public function list(array $filters): LengthAwarePaginator
     {
         AttendancePermission::for()->assertCanViewAny();
 
-        $from = $filters['from'] ?? $filters['date'] ?? now()->toDateString();
-        $to = $filters['to'] ?? $filters['date'] ?? $from;
-        $start = Carbon::parse((string) $from)->startOfDay();
-        $end = Carbon::parse((string) $to)->startOfDay();
-        if ($end->lt($start)) {
-            [$start, $end] = [$end->copy(), $start->copy()];
-        }
-        if ($start->diffInDays($end) > 31) {
-            $end = $start->copy()->addDays(31);
-        }
-
+        [$start, $end] = $this->parseDateRange($filters);
         $branchId = ! empty($filters['branch_id']) ? (int) $filters['branch_id'] : null;
         $shiftId = ! empty($filters['shift_id']) ? (int) $filters['shift_id'] : null;
         $status = $filters['status'] ?? null;
         $search = trim((string) ($filters['search'] ?? ''));
-        $perPage = (int) ($filters['per_page'] ?? 10);
+        $perPage = max(1, (int) ($filters['per_page'] ?? 10));
         $page = max(1, (int) ($filters['page'] ?? 1));
 
-        $rows = $this->rosterRange($start, $end, $branchId);
+        $query = AttendanceLog::query()
+            ->with(['employee.position', 'employee.branches', 'shift', 'branch'])
+            ->where('work_date', '>=', $start->toDateString())
+            ->where('work_date', '<', $end->copy()->addDay()->toDateString());
+
+        $this->scopeVisibleLogs($query, $branchId, $start, $end);
 
         if ($shiftId) {
-            $rows = $rows->filter(fn ($r) => (int) ($r['shift_id'] ?? 0) === $shiftId);
+            $query->where('shift_id', $shiftId);
         }
 
-        if ($status) {
-            $rows = $rows->filter(fn ($r) => $r['ui_status'] === $status);
+        if (is_string($status) && $status !== '') {
+            $this->scopeUiStatus($query, $status);
         }
 
         if ($search !== '') {
-            $like = mb_strtolower($search);
-            $rows = $rows->filter(function ($r) use ($like) {
-                return str_contains(mb_strtolower($r['full_name']), $like)
-                    || str_contains(mb_strtolower($r['employee_code']), $like)
-                    || str_contains(mb_strtolower((string) $r['position']), $like);
+            $like = '%'.addcslashes($search, '%_\\').'%';
+            $query->whereHas('employee', function (Builder $employeeQuery) use ($like) {
+                $employeeQuery->where(function (Builder $inner) use ($like) {
+                    $inner->where('full_name', 'like', $like)
+                        ->orWhere('employee_code', 'like', $like)
+                        ->orWhereHas('position', fn (Builder $position) => $position->where('name', 'like', $like));
+                });
             });
         }
 
-        $rows = $rows->values();
-        $total = $rows->count();
-        $lastPage = max(1, (int) ceil($total / max(1, $perPage)));
-        $slice = $rows->forPage($page, $perPage)->values();
+        $paginator = $query
+            ->orderByDesc('work_date')
+            ->orderBy('employee_id')
+            ->paginate($perPage, ['*'], 'page', $page);
 
-        return new \Illuminate\Pagination\LengthAwarePaginator(
-            $slice,
-            $total,
-            $perPage,
-            $page,
+        $items = collect($paginator->items())->map(function (AttendanceLog $log) use ($branchId) {
+            return $this->buildRowPayload(
+                $log->employee,
+                $log,
+                $log->shift,
+                $log->work_date?->toDateString() ?? now()->toDateString(),
+                $branchId
+            );
+        })->values();
+
+        return new Paginator(
+            $items,
+            $paginator->total(),
+            $paginator->perPage(),
+            $paginator->currentPage(),
             ['path' => request()->url(), 'query' => request()->query()]
         );
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function mine(array $filters): Collection
+    {
+        AttendancePermission::for()->assertCanViewAny();
+        $own = AttendancePermission::for()->ownEmployee();
+        if (! $own) {
+            return collect();
+        }
+
+        [$start, $end] = $this->parseDateRange($filters);
+
+        return AttendanceLog::query()
+            ->with(['employee.position', 'employee.branches', 'shift', 'branch'])
+            ->where('employee_id', $own->id)
+            ->where('work_date', '>=', $start->toDateString())
+            ->where('work_date', '<', $end->copy()->addDay()->toDateString())
+            ->orderByDesc('work_date')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (AttendanceLog $log) => $this->buildRowPayload(
+                $log->employee,
+                $log,
+                $log->shift,
+                $log->work_date?->toDateString() ?? now()->toDateString()
+            ))
+            ->values();
     }
 
     public function findOrFail(int $id): AttendanceLog
@@ -468,100 +469,151 @@ class AttendanceService
     }
 
     /**
-     * @return Collection<int, array<string, mixed>>
+     * @return array{0: Carbon, 1: Carbon}
      */
-    protected function rosterRange(Carbon $start, Carbon $end, ?int $branchId = null): Collection
+    protected function parseDateRange(array $filters): array
+    {
+        $from = $filters['from'] ?? $filters['date'] ?? now()->toDateString();
+        $to = $filters['to'] ?? $filters['date'] ?? $from;
+        $start = Carbon::parse((string) $from)->startOfDay();
+        $end = Carbon::parse((string) $to)->startOfDay();
+        if ($end->lt($start)) {
+            [$start, $end] = [$end->copy(), $start->copy()];
+        }
+        if ($start->diffInDays($end) > 31) {
+            $end = $start->copy()->addDays(31);
+        }
+
+        return [$start, $end];
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @return array<string, int>
+     */
+    protected function statsFromRoster(Collection $rows): array
+    {
+        $total = $rows->count();
+        $checkedIn = $rows->filter(
+            fn ($r) => in_array($r['ui_status'], ['working', 'checked_out'], true)
+        )->count();
+        $working = $rows->filter(fn ($r) => $r['ui_status'] === 'working')->count();
+        $notCheckedIn = $rows->filter(fn ($r) => $r['ui_status'] === 'not_checked_in')->count();
+        $onLeave = $rows->filter(fn ($r) => $r['ui_status'] === 'on_leave')->count();
+
+        return [
+            'total' => $total,
+            'checked_in' => $checkedIn,
+            'working' => $working,
+            'not_checked_in' => $notCheckedIn,
+            'checked_out' => max(0, $checkedIn - $working),
+            'on_leave' => $onLeave,
+        ];
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $roster
+     * @return list<array<string, mixed>>
+     */
+    protected function shiftCardsFromRoster(string $date, Collection $roster): array
+    {
+        $shifts = Shift::query()
+            ->where('status', Shift::STATUS_ACTIVE)
+            ->orderBy('start_time')
+            ->get();
+
+        return $shifts->map(function (Shift $shift) use ($roster, $date) {
+            $rows = $roster->filter(fn ($r) => (int) ($r['shift_id'] ?? 0) === (int) $shift->id);
+            $total = max($rows->count(), 0);
+            $checked = $rows->filter(
+                fn ($r) => in_array($r['ui_status'], ['working', 'checked_out'], true)
+            )->count();
+            $ontime = $rows->filter(fn ($r) => in_array($r['check_in_tone'], ['early', 'ontime'], true))->count();
+            $late = $rows->filter(fn ($r) => $r['check_in_tone'] === 'late')->count();
+            $missing = $rows->filter(fn ($r) => $r['ui_status'] === 'not_checked_in')->count();
+
+            $status = 'upcoming';
+            if ($shift->isOngoingAt(Carbon::parse($date.' '.now()->format('H:i:s')))) {
+                $status = 'ongoing';
+            } elseif ($this->shiftEnded($shift)) {
+                $status = 'done';
+            }
+
+            return [
+                'id' => $shift->id,
+                'name' => $shift->name,
+                'time' => substr((string) $shift->start_time, 0, 5).' - '.substr((string) $shift->end_time, 0, 5),
+                'status' => $status,
+                'checked' => $checked,
+                'total' => $total > 0 ? $total : 0,
+                'ontime' => $ontime,
+                'late' => $late,
+                'missing' => $missing,
+            ];
+        })->values()->all();
+    }
+
+    protected function scopeVisibleLogs(Builder $query, ?int $branchId, Carbon $start, Carbon $end): void
     {
         $permission = AttendancePermission::for();
 
         if ($branchId) {
             $permission->assertCanAccessBranch($branchId);
+            $query->where('branch_id', $branchId);
         }
-
-        $employeeQuery = Employee::query()
-            ->with(['position', 'branches'])
-            ->where('status', Employee::STATUS_ACTIVE)
-            ->where(function ($query) use ($end) {
-                $query->whereNull('joined_at')
-                    ->orWhereDate('joined_at', '<=', $end->toDateString());
-            })
-            ->where(function ($query) use ($start) {
-                $query->whereNull('resigned_at')
-                    ->orWhereDate('resigned_at', '>=', $start->toDateString());
-            })
-            ->orderBy('full_name');
 
         if ($permission->isEmployeeOnly()) {
-            $own = $permission->ownEmployee();
-            $employeeQuery->where('id', $own?->id ?? 0);
-        } elseif ($permission->isManager()) {
+            $query->where('employee_id', $permission->ownEmployee()?->id ?? 0);
+
+            return;
+        }
+
+        $query->whereHas('employee', function (Builder $employeeQuery) use ($permission, $branchId, $start, $end) {
+            $employeeQuery
+                ->where('status', Employee::STATUS_ACTIVE)
+                ->where(function (Builder $joined) use ($end) {
+                    $joined->whereNull('joined_at')
+                        ->orWhereDate('joined_at', '<=', $end->toDateString());
+                })
+                ->where(function (Builder $resigned) use ($start) {
+                    $resigned->whereNull('resigned_at')
+                        ->orWhereDate('resigned_at', '>=', $start->toDateString());
+                });
+
+            if ($permission->isManager()) {
+                $managed = $permission->managedBranchIds();
+                $employeeQuery->whereHas('branches', fn (Builder $q) => $q->whereIn('branches.id', $managed));
+                if ($branchId) {
+                    $employeeQuery->whereHas('branches', fn (Builder $q) => $q->where('branches.id', $branchId));
+                }
+            } elseif ($branchId) {
+                $employeeQuery->whereHas('branches', fn (Builder $q) => $q->where('branches.id', $branchId));
+            }
+        });
+
+        if ($permission->isManager() && ! $branchId) {
             $managed = $permission->managedBranchIds();
-            $employeeQuery->whereHas('branches', fn ($q) => $q->whereIn('branches.id', $managed));
-            if ($branchId) {
-                $employeeQuery->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
-            }
-        } elseif ($branchId) {
-            $employeeQuery->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
+            $query->whereIn('branch_id', $managed->all() ?: [0]);
         }
+    }
 
-        $employees = $employeeQuery->get();
-        $employeeIds = $employees->pluck('id');
-
-        $logs = AttendanceLog::query()
-            ->with(['shift', 'branch'])
-            ->whereIn('employee_id', $employeeIds)
-            ->whereDate('work_date', '>=', $start->toDateString())
-            ->whereDate('work_date', '<=', $end->toDateString())
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
-            ->get()
-            ->keyBy(fn (AttendanceLog $log) => $log->work_date->toDateString().':'.$log->employee_id);
-
-        $assignments = ShiftAssignment::query()
-            ->with('shift')
-            ->whereIn('employee_id', $employeeIds)
-            ->whereDate('date', '>=', $start->toDateString())
-            ->whereDate('date', '<=', $end->toDateString())
-            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
-            ->get()
-            ->keyBy(fn (ShiftAssignment $row) => Carbon::parse($row->date)->toDateString().':'.$row->employee_id);
-
-        $excluded = collect();
-        if (Schema::hasTable('attendance_exclusions')) {
-            $excluded = AttendanceExclusion::query()
-                ->whereDate('work_date', '>=', $start->toDateString())
-                ->whereDate('work_date', '<=', $end->toDateString())
-                ->get()
-                ->mapWithKeys(fn (AttendanceExclusion $row) => [
-                    $row->work_date->toDateString().':'.$row->employee_id.':'.$row->branch_id => true,
-                ]);
-        }
-
-        $rows = collect();
-        for ($cursor = $end->copy(); $cursor->gte($start); $cursor->subDay()) {
-            $date = $cursor->toDateString();
-            foreach ($employees as $employee) {
-                if (($employee->joined_at && $employee->joined_at->gt($cursor))
-                    || ($employee->resigned_at && $employee->resigned_at->lt($cursor))) {
-                    continue;
-                }
-
-                $key = $date.':'.$employee->id;
-                $log = $logs->get($key);
-                $assignment = $assignments->get($key);
-                $shift = $log?->shift ?? $assignment?->shift;
-                $row = $this->buildRowPayload($employee, $log, $shift, $date, $branchId);
-                $excludedKey = $date.':'.$row['employee_id'].':'.$row['branch_id'];
-
-                if (empty($row['id']) && $excluded->has($excludedKey)) {
-                    continue;
-                }
-
-                $rows->push($row);
-            }
-        }
-
-        return $rows;
+    protected function scopeUiStatus(Builder $query, string $status): void
+    {
+        match ($status) {
+            'on_leave' => $query->where('status', AttendanceLog::STATUS_LEAVE),
+            'absent' => $query->where('status', AttendanceLog::STATUS_ABSENT),
+            'checked_out' => $query
+                ->whereNotNull('check_out_at')
+                ->whereNotIn('status', [AttendanceLog::STATUS_LEAVE, AttendanceLog::STATUS_ABSENT]),
+            'working' => $query
+                ->whereNotNull('check_in_at')
+                ->whereNull('check_out_at')
+                ->whereNotIn('status', [AttendanceLog::STATUS_LEAVE, AttendanceLog::STATUS_ABSENT]),
+            'not_checked_in' => $query
+                ->whereNull('check_in_at')
+                ->whereNotIn('status', [AttendanceLog::STATUS_LEAVE, AttendanceLog::STATUS_ABSENT]),
+            default => null,
+        };
     }
 
     /**
@@ -569,6 +621,11 @@ class AttendanceService
      */
     protected function roster(string $date, ?int $branchId = null): Collection
     {
+        $key = $date.'|'.($branchId ?? 'all');
+        if (isset($this->rosterMemo[$key])) {
+            return $this->rosterMemo[$key];
+        }
+
         $permission = AttendancePermission::for();
 
         if ($branchId) {
@@ -601,49 +658,27 @@ class AttendanceService
             $employeeQuery->whereHas('branches', fn ($q) => $q->where('branches.id', $branchId));
         }
 
-        $employees = $employeeQuery->get();
-
-        $logs = AttendanceLog::query()
-            ->with(['shift', 'branch'])
-            ->whereDate('work_date', $date)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
-            ->get()
-            ->keyBy('employee_id');
-
-        $assignments = ShiftAssignment::query()
-            ->with('shift')
-            ->whereDate('date', $date)
-            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
-            ->get()
-            ->groupBy('employee_id');
-
-        $rows = $employees->map(function (Employee $employee) use ($logs, $assignments, $date, $branchId) {
-            /** @var AttendanceLog|null $log */
-            $log = $logs->get($employee->id);
-            $assignment = ($assignments->get($employee->id) ?? collect())->first();
-            $shift = $log?->shift ?? $assignment?->shift;
-
-            return $this->buildRowPayload($employee, $log, $shift, $date, $branchId);
-        });
-
-        if (! Schema::hasTable('attendance_exclusions')) {
-            return $rows->values();
+        $employeeIds = $employeeQuery->pluck('id');
+        if ($employeeIds->isEmpty()) {
+            return $this->rosterMemo[$key] = collect();
         }
 
-        $excluded = AttendanceExclusion::query()
+        $logs = AttendanceLog::query()
+            ->with(['employee.position', 'employee.branches', 'shift', 'branch'])
+            ->whereIn('employee_id', $employeeIds)
             ->whereDate('work_date', $date)
-            ->get()
-            ->mapWithKeys(fn (AttendanceExclusion $row) => [
-                $row->employee_id.':'.$row->branch_id => true,
-            ]);
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+            ->orderBy('employee_id')
+            ->get();
 
-        return $rows->reject(function (array $row) use ($excluded) {
-            if (! empty($row['id'])) {
-                return false;
-            }
-
-            return $excluded->has($row['employee_id'].':'.$row['branch_id']);
+        return $this->rosterMemo[$key] = $logs->map(function (AttendanceLog $log) use ($date, $branchId) {
+            return $this->buildRowPayload(
+                $log->employee,
+                $log,
+                $log->shift,
+                $date,
+                $branchId
+            );
         })->values();
     }
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -9,21 +8,15 @@ import {
   Settings2,
   Wallet,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
-import { PayrollSidePanel } from "@/components/payroll/PayrollSidePanel";
 import { PayrollStatsCards } from "@/components/payroll/PayrollStatsCards";
 import {
   PayrollTable,
   type PayrollMainTab,
 } from "@/components/payroll/PayrollTable";
-import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
 import { PayrollPayModal } from "@/components/payroll/PayrollPayModal";
 import {
   exportPayrolls,
@@ -36,8 +29,20 @@ import {
   type PayrollStats,
   type PayrollStatus,
 } from "@/lib/payroll-api";
-import type { DashboardData } from "@/types/dashboard";
 import { currentMonth, currentYear } from "@/lib/timezone";
+
+const PayrollSidePanel = dynamic(
+  () =>
+    import("@/components/payroll/PayrollSidePanel").then(
+      (mod) => mod.PayrollSidePanel,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[360px] w-full max-w-sm animate-pulse rounded-2xl bg-white" />
+    ),
+  },
+);
 
 const emptyStats: PayrollStats = {
   employees: 0,
@@ -51,10 +56,9 @@ const emptyStats: PayrollStats = {
 };
 
 export default function PayrollPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quản lý lương và thanh toán cho nhân viên",
+  );
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -136,42 +140,8 @@ export default function PayrollPage() {
   ]);
 
   useEffect(() => {
-    async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
-      try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
-        setLoading(false);
-      } catch {
-        setLoading(false);
-        router.replace("/login");
-      }
-    }
-    void boot();
-  }, [router]);
-
-  useEffect(() => {
-    if (!shell) return;
     void loadList();
-  }, [shell, loadList, reloadKey]);
+  }, [loadList, reloadKey]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -204,20 +174,9 @@ export default function PayrollPage() {
   ]);
 
   useEffect(() => {
-    if (!shell || mainTab !== "history") return;
+    if (mainTab !== "history") return;
     void loadHistory();
-  }, [shell, mainTab, loadHistory, historyReloadKey]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quản lý lương và thanh toán cho nhân viên",
-      },
-    };
-  }, [shell]);
+  }, [mainTab, loadHistory, historyReloadKey]);
 
   function shiftMonth(delta: number) {
     const d = new Date(year, month - 1 + delta, 1);
@@ -230,14 +189,6 @@ export default function PayrollPage() {
   function openPay(employeeId?: number) {
     setPayEmployeeId(employeeId ?? null);
     setPayOpen(true);
-  }
-
-  if (loading || !shell || !headerData) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
   }
 
   return (

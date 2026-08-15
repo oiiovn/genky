@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useParams } from "next/navigation";
 import { SettingsBranchesPanel } from "@/components/settings/SettingsBranchesPanel";
 import { SettingsCompanyPanel } from "@/components/settings/SettingsCompanyPanel";
@@ -50,11 +51,19 @@ export default function SettingsSectionPage() {
     branches,
     employees,
     shifts,
+    extrasLoading,
+    ensureEmployeesAndShifts,
     showToast,
     setOrganization,
     setBranches,
     setUser,
   } = useSettingsData();
+
+  useEffect(() => {
+    if (slug === "branches") {
+      ensureEmployeesAndShifts();
+    }
+  }, [slug, ensureEmployeesAndShifts]);
 
   if (!slug || !isSettingsSection(slug)) {
     return null;
@@ -94,6 +103,7 @@ export default function SettingsSectionPage() {
         branches={branches}
         employees={employees}
         shifts={shifts}
+        extrasLoading={extrasLoading}
         onChanged={setBranches}
         onToast={showToast}
       />

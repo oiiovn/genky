@@ -61,7 +61,7 @@ export function LoginForm() {
 
       saveTokens(result.access_token, result.refresh_token);
       try {
-        const next = await resolvePostAuthPath();
+        const next = await resolvePostAuthPath(result.role);
         hardPush(next);
       } catch {
         hardPush("/onboarding");

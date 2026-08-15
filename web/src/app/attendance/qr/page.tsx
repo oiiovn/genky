@@ -1,20 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { Lock, ShieldCheck } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
-import { QrCodePanel } from "@/components/attendance/QrCodePanel";
 import { QrSettingsPanel } from "@/components/attendance/QrSettingsPanel";
 import { QrSideInfo } from "@/components/attendance/QrSideInfo";
-import {
-  fetchBranches,
-  fetchDashboard,
-  getAccessToken,
-  me,
-  type Branch,
-} from "@/lib/api";
 import {
   fetchQrCurrent,
   fetchQrRecent,
@@ -23,12 +16,23 @@ import {
   type QrHistoryRow,
   type QrSettings,
 } from "@/lib/attendance-qr-api";
-import type { DashboardData } from "@/types/dashboard";
+import { useVisibleInterval } from "@/lib/use-visible-interval";
+
+const QrCodePanel = dynamic(
+  () =>
+    import("@/components/attendance/QrCodePanel").then((mod) => mod.QrCodePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[420px] animate-pulse rounded-2xl bg-white" />
+    ),
+  },
+);
 
 export default function AttendanceQrPage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { shell, branches, headerData } = useAdminChrome(
+    "Quét QR để chấm công Check-in / Check-out",
+  );
   const [settings, setSettings] = useState<QrSettings | null>(null);
   const [draft, setDraft] = useState<QrSettings | null>(null);
   const [qrValue, setQrValue] = useState<string | null>(null);
@@ -97,76 +101,33 @@ export default function AttendanceQrPage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, branchList] = await Promise.all([
-          fetchDashboard(),
-          fetchBranches().catch(() => [] as Branch[]),
-        ]);
-        setShell(dashboard);
-        setBranches(branchList);
-        setLoading(false);
-
         const preferred =
-          branchList.find((b) => b.is_headquarters)?.id ?? branchList[0]?.id;
+          branches.find((b) => b.is_headquarters)?.id ?? branches[0]?.id;
         if (preferred) {
           await loadForBranch(preferred);
         }
-      } catch {
+      } finally {
         setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
-  }, [router, loadForBranch]);
+  }, [branches, loadForBranch]);
 
-  useEffect(() => {
-    if (!branchId || !draft?.enabled) return;
-    const timer = window.setInterval(() => {
-      setExpiresIn((prev) => {
-        if (prev <= 1) {
-          void loadQr(branchId, true);
-          void loadRecent(branchId);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [branchId, draft?.enabled, loadQr, loadRecent]);
+  useVisibleInterval(() => {
+    setExpiresIn((prev) => {
+      if (prev <= 1) {
+        void loadQr(branchId as number, true);
+        void loadRecent(branchId as number);
+        return 0;
+      }
+      return prev - 1;
+    });
+  }, 1_000, Boolean(branchId && draft?.enabled));
 
-  useEffect(() => {
-    if (!branchId) return;
-    const poll = window.setInterval(() => {
-      void loadRecent(branchId);
-    }, 15000);
-    return () => window.clearInterval(poll);
-  }, [branchId, loadRecent]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Quét QR để chấm công Check-in / Check-out",
-      },
-    };
-  }, [shell]);
+  useVisibleInterval(() => {
+    if (branchId) void loadRecent(branchId);
+  }, 15_000, Boolean(branchId));
 
   async function onToggleEnabled(next: boolean) {
     if (!draft) return;
@@ -230,7 +191,7 @@ export default function AttendanceQrPage() {
     }
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

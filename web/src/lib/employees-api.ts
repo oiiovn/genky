@@ -62,6 +62,13 @@ export type EmployeeListResponse = {
   meta: EmployeeListMeta;
 };
 
+export type EmployeeStats = {
+  total: number;
+  active: number;
+  resigned: number;
+  inactive: number;
+};
+
 export type EmployeeFilters = {
   branch_id?: number | "";
   role_id?: number | "";
@@ -113,6 +120,19 @@ export async function fetchEmployees(
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
+}
+
+export async function fetchEmployeeStats(branchId?: number | ""): Promise<EmployeeStats> {
+  const params = new URLSearchParams();
+  if (branchId) params.set("branch_id", String(branchId));
+
+  const res = await fetch(`${apiUrl()}/employees/stats?${params.toString()}`, {
+    headers: authHeaders(false),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = await res.json();
+  return json.data as EmployeeStats;
 }
 
 export async function fetchPositions(): Promise<Position[]> {

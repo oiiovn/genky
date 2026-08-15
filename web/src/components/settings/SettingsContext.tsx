@@ -6,33 +6,32 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useAdminShell } from "@/components/admin/AdminShell";
 import {
   fetchBranches,
-  fetchDashboard,
   fetchOrganization,
-  getAccessToken,
-  me,
   type AuthOrganization,
   type AuthUser,
   type Branch,
 } from "@/lib/api";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
-import type { DashboardData } from "@/types/dashboard";
+import type { ShellData } from "@/types/dashboard";
 
 type SettingsContextValue = {
-  shell: DashboardData;
-  headerData: DashboardData;
+  shell: ShellData;
+  headerData: ShellData;
   organization: AuthOrganization | null;
   user: AuthUser | null;
   branches: Branch[];
   employees: Employee[];
   shifts: Shift[];
-  employeeCount: number;
+  extrasLoading: boolean;
+  ensureEmployeesAndShifts: () => void;
   toast: string | null;
   showToast: (msg: string) => void;
   setOrganization: (org: AuthOrganization) => void;
@@ -51,70 +50,61 @@ export function useSettingsData() {
 }
 
 export function SettingsShell({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
+  const { shell: chrome, profile } = useAdminShell();
+  const [shell, setShell] = useState<ShellData>(chrome);
   const [organization, setOrganizationState] =
     useState<AuthOrganization | null>(null);
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [employeeCount, setEmployeeCount] = useState(0);
+  const [extrasLoading, setExtrasLoading] = useState(false);
+  const extrasRequested = useRef(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
+    setShell(chrome);
+  }, [chrome]);
+
+  useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, org, branchList, empList, shiftList] =
-          await Promise.all([
-            fetchDashboard(),
-            fetchOrganization().catch(() => null),
-            fetchBranches().catch(() => [] as Branch[]),
-            fetchEmployees({ per_page: 100 }).catch(() => ({
-              data: [] as Employee[],
-              meta: {
-                current_page: 1,
-                last_page: 1,
-                per_page: 100,
-                total: 0,
-              },
-            })),
-            fetchShifts({ per_page: 50 }).catch(() => ({
-              data: [] as Shift[],
-              meta: { current_page: 1, last_page: 1, per_page: 50, total: 0 },
-            })),
-          ]);
-        setShell(dashboard);
+        const [org, branchList] = await Promise.all([
+          fetchOrganization().catch(() => null),
+          fetchBranches().catch(() => [] as Branch[]),
+        ]);
         setOrganizationState(org);
         setUserState(profile.user);
         setBranches(branchList);
-        setEmployees(empList.data);
-        setShifts(shiftList.data);
-        setEmployeeCount(empList.meta.total);
+      } finally {
         setLoading(false);
-      } catch {
-        setLoading(false);
-        router.replace("/login");
       }
     }
     void boot();
-  }, [router]);
+  }, [profile.user]);
+
+  const ensureEmployeesAndShifts = useCallback(() => {
+    if (extrasRequested.current) return;
+    extrasRequested.current = true;
+    setExtrasLoading(true);
+    void Promise.all([
+      fetchEmployees({ per_page: 100 }).catch(() => ({
+        data: [] as Employee[],
+      })),
+      fetchShifts({ per_page: 50 }).catch(() => ({
+        data: [] as Shift[],
+      })),
+    ])
+      .then(([empList, shiftList]) => {
+        setEmployees(empList.data);
+        setShifts(shiftList.data);
+      })
+      .catch(() => {
+        extrasRequested.current = false;
+      })
+      .finally(() => setExtrasLoading(false));
+  }, []);
 
   const headerData = useMemo(() => {
     if (!shell) return null;
@@ -174,7 +164,8 @@ export function SettingsShell({ children }: { children: ReactNode }) {
     branches,
     employees,
     shifts,
-    employeeCount,
+    extrasLoading,
+    ensureEmployeesAndShifts,
     toast,
     showToast,
     setOrganization,

@@ -37,12 +37,14 @@ export function SettingsBranchesPanel({
   branches,
   employees,
   shifts,
+  extrasLoading = false,
   onChanged,
   onToast,
 }: {
   branches: Branch[];
   employees: Employee[];
   shifts: Shift[];
+  extrasLoading?: boolean;
   onChanged: (next: Branch[]) => void;
   onToast: (msg: string) => void;
 }) {
@@ -194,8 +196,10 @@ export function SettingsBranchesPanel({
       {selected ? (
         <BranchDetail
           branch={selected}
-          employeeCount={countEmployees(selected.id)}
-          shiftCount={countShifts(selected.id)}
+          employeeCount={
+            extrasLoading ? null : countEmployees(selected.id)
+          }
+          shiftCount={extrasLoading ? null : countShifts(selected.id)}
           onEdit={() => setModal("edit")}
           onToggle={async () => {
             const updated = await updateBranch(selected.id, {
@@ -252,8 +256,8 @@ function BranchDetail({
   onToast,
 }: {
   branch: Branch;
-  employeeCount: number;
-  shiftCount: number;
+  employeeCount: number | null;
+  shiftCount: number | null;
   onEdit: () => void;
   onToggle: () => Promise<void>;
   onDelete: () => Promise<void>;
@@ -276,8 +280,8 @@ function BranchDetail({
   ];
 
   const stats = [
-    { label: "Nhân viên", value: String(employeeCount), icon: Users },
-    { label: "Ca làm việc", value: String(shiftCount), icon: Clock3 },
+    { label: "Nhân viên", value: employeeCount == null ? "…" : String(employeeCount), icon: Users },
+    { label: "Ca làm việc", value: shiftCount == null ? "…" : String(shiftCount), icon: Clock3 },
     { label: "Giờ công tháng", value: "—", icon: Timer },
     { label: "Quỹ lương tháng", value: "—", icon: Wallet },
   ];

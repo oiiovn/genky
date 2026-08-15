@@ -3,9 +3,11 @@
 namespace App\Support\Authorization;
 
 use App\Models\Employee;
+use App\Models\Organization;
 use App\Models\OrganizationUser;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\Access\AccessCache;
 use App\Support\Role\RolePermissionCatalog;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -48,6 +50,35 @@ class EffectivePermission
         }
 
         $org = TenantContext::organization();
+        $orgId = (int) ($org?->id ?? 0);
+
+        return AccessCache::rememberRequest(
+            "perm:{$user->id}:{$orgId}",
+            function () use ($user, $org, $orgId) {
+                if ($orgId === 0) {
+                    return self::resolve($user, $org);
+                }
+
+                $snapshot = AccessCache::rememberPermission(
+                    (int) $user->id,
+                    $orgId,
+                    fn () => self::resolve($user, $org)->snapshot()
+                );
+
+                return self::fromSnapshot($user, $snapshot);
+            }
+        );
+    }
+
+    public static function resolve(?User $user = null, ?Organization $org = null): self
+    {
+        $user ??= auth()->user();
+
+        if (! $user) {
+            throw new AuthorizationException('Chưa đăng nhập.');
+        }
+
+        $org ??= TenantContext::organization();
         $membershipRole = $user->roleIn($org);
 
         $bypass = in_array($membershipRole, [
@@ -134,6 +165,46 @@ class EffectivePermission
                 default => 'Thành viên',
             },
             $membershipRole,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function snapshot(): array
+    {
+        return [
+            'matrix' => $this->matrix,
+            'bypass' => $this->bypass,
+            'roleLabel' => $this->roleLabel,
+            'membershipRole' => $this->membershipRole,
+            'customRole' => $this->customRole ? [
+                'id' => $this->customRole->id,
+                'slug' => $this->customRole->slug,
+                'name' => $this->customRole->name,
+                'is_default' => (bool) $this->customRole->is_default,
+            ] : null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    public static function fromSnapshot(User $user, array $snapshot): self
+    {
+        $customRole = null;
+        if (is_array($snapshot['customRole'] ?? null)) {
+            $customRole = (new Role)->forceFill($snapshot['customRole']);
+            $customRole->exists = true;
+        }
+
+        return new self(
+            $user,
+            $snapshot['matrix'] ?? [],
+            $customRole,
+            (bool) ($snapshot['bypass'] ?? false),
+            (string) ($snapshot['roleLabel'] ?? 'Thành viên'),
+            isset($snapshot['membershipRole']) ? (string) $snapshot['membershipRole'] : null,
         );
     }
 

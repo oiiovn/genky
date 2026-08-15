@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import QRCode from "qrcode";
 import { RefreshCw } from "lucide-react";
 
 export function QrCodePanel({
@@ -27,6 +26,7 @@ export function QrCodePanel({
         return;
       }
       try {
+        const { default: QRCode } = await import("qrcode");
         const url = await QRCode.toDataURL(value, {
           width: 280,
           margin: 2,

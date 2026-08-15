@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Database,
   Headphones,
@@ -10,25 +9,21 @@ import {
   Sparkles,
   XCircle,
 } from "lucide-react";
+import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { PlanCard } from "@/components/billing/PlanCard";
 import { UpgradeFaq } from "@/components/billing/UpgradeFaq";
 import {
-  fetchDashboard,
-  getAccessToken,
-  me,
-} from "@/lib/api";
-import {
   fetchPlansCatalog,
   type PlansCatalog,
   type UpgradePlan,
 } from "@/lib/plans-api";
-import type { DashboardData } from "@/types/dashboard";
 
 export default function UpgradePage() {
-  const router = useRouter();
-  const [shell, setShell] = useState<DashboardData | null>(null);
+  const { shell, headerData } = useAdminChrome(
+    "Chọn gói phù hợp để mở khóa toàn bộ tính năng",
+  );
   const [catalog, setCatalog] = useState<PlansCatalog | null>(null);
   const [yearly, setYearly] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -37,48 +32,16 @@ export default function UpgradePage() {
 
   useEffect(() => {
     async function boot() {
-      if (!getAccessToken()) {
-        setLoading(false);
-        router.replace("/login");
-        return;
-      }
       try {
-        const profile = await me();
-        if (profile.setup && !profile.setup.setup_completed) {
-          setLoading(false);
-          router.replace(
-            profile.setup.next_step === "branch"
-              ? "/onboarding/branch"
-              : "/onboarding",
-          );
-          return;
-        }
-        const [dashboard, plans] = await Promise.all([
-          fetchDashboard(),
-          fetchPlansCatalog(),
-        ]);
-        setShell(dashboard);
-        setCatalog(plans);
-        setLoading(false);
+        setCatalog(await fetchPlansCatalog());
       } catch (err) {
-        setLoading(false);
         setError(err instanceof Error ? err.message : "Không tải được gói.");
-        if (!getAccessToken()) router.replace("/login");
+      } finally {
+        setLoading(false);
       }
     }
     void boot();
-  }, [router]);
-
-  const headerData = useMemo(() => {
-    if (!shell) return null;
-    return {
-      ...shell,
-      greeting: {
-        ...shell.greeting,
-        message: "Chọn gói phù hợp để mở khóa toàn bộ tính năng",
-      },
-    };
-  }, [shell]);
+  }, []);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -96,7 +59,7 @@ export default function UpgradePage() {
     );
   }
 
-  if (loading || !shell || !headerData) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
         Đang tải...

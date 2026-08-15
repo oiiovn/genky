@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useStaff } from "@/components/staff/StaffShell";
 import {
-  fetchAttendances,
+  fetchMyAttendances,
   statusLabel,
   statusTone,
   type AttendanceRow,
@@ -48,13 +48,10 @@ export default function StaffHomePage() {
     async function load() {
       try {
         const [att, pay] = await Promise.all([
-          fetchAttendances({ date: todayIso(), per_page: 20 }).catch(() => null),
+          fetchMyAttendances({ date: todayIso() }).catch(() => []),
           fetchPayrolls({ year, month, per_page: 20 }).catch(() => null),
         ]);
-        const mineAtt =
-          att?.data.find((r) => r.employee_id === session.employeeId) ??
-          att?.data[0] ??
-          null;
+        const mineAtt = att[0] ?? null;
         const minePay =
           pay?.data.find((r) => r.employee.id === session.employeeId) ??
           pay?.data[0] ??
