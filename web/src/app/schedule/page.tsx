@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAdminChrome } from "@/components/admin/AdminShell";
 import { AssignShiftModal } from "@/components/schedule/AssignShiftModal";
+import {
+  ScheduleAlertDetailPanel,
+  type ScheduleAlertKind,
+} from "@/components/schedule/ScheduleAlertDetailPanel";
+import { ScheduleDayPanel } from "@/components/schedule/ScheduleDayPanel";
+import { ScheduleMonthGrid } from "@/components/schedule/ScheduleMonthGrid";
 import { ScheduleSidePanel } from "@/components/schedule/ScheduleSidePanel";
 import {
   ScheduleToolbar,
@@ -20,12 +26,18 @@ import {
   fetchScheduleAssignments,
   type ScheduleAssignment,
 } from "@/lib/schedule-api";
+import { buildUnderstaffedSlots } from "@/lib/schedule-alerts";
 import {
   addDays,
+  addMonths,
+  buildMonthGrid,
   buildWeekDays,
+  endOfMonth,
   minutesBetween,
+  startOfMonth,
   startOfWeek,
   toIsoDate,
+  type WeekDay,
 } from "@/lib/schedule-utils";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
 import { nowInAppTz, todayIso } from "@/lib/timezone";
@@ -71,10 +83,35 @@ export default function SchedulePage() {
   );
   const [removing, setRemoving] = useState(false);
 
+  const [dayPanelDate, setDayPanelDate] = useState<string | null>(null);
+  const [dayAdding, setDayAdding] = useState(false);
+  const [dayEmployeeId, setDayEmployeeId] = useState<number | "">("");
+  const [alertDetailKind, setAlertDetailKind] =
+    useState<ScheduleAlertKind | null>(null);
+
+  useEffect(() => {
+    if (employeeId !== "" && alertDetailKind === "understaffed") {
+      setAlertDetailKind(null);
+    }
+  }, [employeeId, alertDetailKind]);
+
   const weekDays = useMemo(() => buildWeekDays(anchor, todayIso()), [anchor]);
-  const rangeFrom = weekDays[0]?.iso ?? toIsoDate(anchor);
-  const rangeTo = weekDays[6]?.iso ?? toIsoDate(addDays(anchor, 6));
-  const [appliedDays, setAppliedDays] = useState(weekDays);
+  const monthGrid = useMemo(() => buildMonthGrid(anchor, todayIso()), [anchor]);
+  const monthDaysInRange = useMemo(
+    () => monthGrid.filter((d) => d.isCurrentMonth),
+    [monthGrid],
+  );
+
+  const rangeFrom =
+    view === "month"
+      ? toIsoDate(startOfMonth(anchor))
+      : (weekDays[0]?.iso ?? toIsoDate(anchor));
+  const rangeTo =
+    view === "month"
+      ? toIsoDate(endOfMonth(anchor))
+      : (weekDays[6]?.iso ?? toIsoDate(addDays(anchor, 6)));
+
+  const [appliedDays, setAppliedDays] = useState<WeekDay[]>(weekDays);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -86,7 +123,16 @@ export default function SchedulePage() {
     const controller = new AbortController();
     abortRef.current = controller;
     const requestId = ++requestIdRef.current;
-    const daysForRequest = weekDays;
+    const daysForRequest: WeekDay[] =
+      view === "month"
+        ? monthDaysInRange.map((d) => ({
+            iso: d.iso,
+            label: "",
+            dayNum: String(d.dayNum).padStart(2, "0"),
+            monthDay: "",
+            isToday: d.isToday,
+          }))
+        : weekDays;
     setRefreshing(true);
     setError(null);
     try {
@@ -105,7 +151,10 @@ export default function SchedulePage() {
       setAssignments(data);
       setAppliedDays(daysForRequest);
     } catch (err) {
-      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+      if (
+        controller.signal.aborted ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
         return;
       }
       if (requestId !== requestIdRef.current) return;
@@ -115,7 +164,16 @@ export default function SchedulePage() {
         setRefreshing(false);
       }
     }
-  }, [branchId, shiftId, employeeId, rangeFrom, rangeTo, weekDays]);
+  }, [
+    branchId,
+    shiftId,
+    employeeId,
+    rangeFrom,
+    rangeTo,
+    weekDays,
+    monthDaysInRange,
+    view,
+  ]);
 
   useEffect(() => {
     async function boot() {
@@ -147,9 +205,7 @@ export default function SchedulePage() {
   const filteredEmployees = useMemo(() => {
     let list = employees;
     if (branchId) {
-      list = list.filter((e) =>
-        e.branches.some((b) => b.id === branchId),
-      );
+      list = list.filter((e) => e.branches.some((b) => b.id === branchId));
     }
     if (employeeId) {
       list = list.filter((e) => e.id === employeeId);
@@ -184,13 +240,34 @@ export default function SchedulePage() {
     });
   }, [filteredEmployees, assignments, shiftId]);
 
+  const monthVisibleAssignments = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return assignments;
+    return assignments.filter((a) => {
+      const name = (a.employee?.full_name ?? "").toLowerCase();
+      const code = (a.employee?.employee_code ?? "").toLowerCase();
+      return name.includes(q) || code.includes(q);
+    });
+  }, [assignments, search]);
+
+  const monthByDate = useMemo(() => {
+    const map: Record<string, ScheduleAssignment[]> = {};
+    for (const a of monthVisibleAssignments) {
+      if (!map[a.date]) map[a.date] = [];
+      map[a.date].push(a);
+    }
+    return map;
+  }, [monthVisibleAssignments]);
+
   const overview = useMemo(() => {
+    const sourceAssignments =
+      view === "month" ? monthVisibleAssignments : assignments;
     const byShiftMap = new Map<number, { shift: Shift; count: number }>();
     for (const s of shifts) {
       byShiftMap.set(s.id, { shift: s, count: 0 });
     }
     let totalMinutes = 0;
-    for (const a of assignments) {
+    for (const a of sourceAssignments) {
       if (!a.shift) continue;
       const entry = byShiftMap.get(a.shift.id);
       if (entry) entry.count += 1;
@@ -204,7 +281,10 @@ export default function SchedulePage() {
             start_time: a.shift.start_time,
             end_time: a.shift.end_time,
             crosses_midnight: false,
-            duration_minutes: minutesBetween(a.shift.start_time, a.shift.end_time),
+            duration_minutes: minutesBetween(
+              a.shift.start_time,
+              a.shift.end_time,
+            ),
             break_minutes: 0,
             break_time: 0,
             total_minutes: minutesBetween(a.shift.start_time, a.shift.end_time),
@@ -234,13 +314,14 @@ export default function SchedulePage() {
       if (!hasAny) unscheduledEmployees += 1;
     }
 
-    const understaffedShifts = shifts.filter((s) => {
-      const count = byShiftMap.get(s.id)?.count ?? 0;
-      return (s.capacity ?? 0) > 0 && count < (s.capacity ?? 0);
-    }).length;
+    const employeeFilterActive = employeeId !== "";
+    const allowedDates = new Set(appliedDays.map((d) => d.iso));
+    const understaffedSlots = employeeFilterActive
+      ? []
+      : buildUnderstaffedSlots(assignments, shifts, allowedDates);
 
     return {
-      totalAssignments: assignments.length,
+      totalAssignments: sourceAssignments.length,
       totalMinutes,
       byShift: shifts.map((shift) => ({
         shift,
@@ -248,9 +329,86 @@ export default function SchedulePage() {
       })),
       offDays,
       unscheduledEmployees,
-      understaffedShifts,
+      understaffedShifts: understaffedSlots.length,
+      understaffedHidden: employeeFilterActive,
+      understaffedSlots,
     };
-  }, [assignments, shifts, rows, appliedDays]);
+  }, [
+    assignments,
+    monthVisibleAssignments,
+    shifts,
+    rows,
+    appliedDays,
+    view,
+    employeeId,
+  ]);
+
+  const unscheduledEmployeeList = useMemo(() => {
+    return rows
+      .filter((row) => {
+        for (const day of appliedDays) {
+          if ((row.byDate[day.iso] ?? []).length > 0) return false;
+        }
+        return true;
+      })
+      .map((row) => row.employee);
+  }, [rows, appliedDays]);
+
+  function handleViewChange(next: ScheduleViewMode) {
+    setView(next);
+    setDayPanelDate(null);
+    setDayAdding(false);
+    setDayEmployeeId("");
+    setAlertDetailKind(null);
+    if (next === "month") {
+      setAnchor((d) => {
+        const month = startOfMonth(d);
+        setAppliedDays(
+          buildMonthGrid(month, todayIso())
+            .filter((day) => day.isCurrentMonth)
+            .map((day) => ({
+              iso: day.iso,
+              label: "",
+              dayNum: String(day.dayNum).padStart(2, "0"),
+              monthDay: "",
+              isToday: day.isToday,
+            })),
+        );
+        return month;
+      });
+    } else if (next === "week") {
+      setAnchor((d) => {
+        const week = startOfWeek(d);
+        setAppliedDays(buildWeekDays(week, todayIso()));
+        return week;
+      });
+    }
+  }
+
+  function handlePrev() {
+    if (view === "month") {
+      setAnchor((d) => addMonths(startOfMonth(d), -1));
+      return;
+    }
+    setAnchor((d) => addDays(startOfWeek(d), -7));
+  }
+
+  function handleNext() {
+    if (view === "month") {
+      setAnchor((d) => addMonths(startOfMonth(d), 1));
+      return;
+    }
+    setAnchor((d) => addDays(startOfWeek(d), 7));
+  }
+
+  function handleToday() {
+    const now = nowInAppTz();
+    if (view === "month") {
+      setAnchor(startOfMonth(now));
+      return;
+    }
+    setAnchor(startOfWeek(now));
+  }
 
   async function handleAssign(payload: {
     shift_id: number;
@@ -271,6 +429,8 @@ export default function SchedulePage() {
       setAssignOpen(false);
       setAssignEmployee(null);
       setAssignDate(null);
+      setDayAdding(false);
+      setDayEmployeeId("");
       if (created?.id) {
         setAssignments((prev) =>
           prev.some((row) => row.id === created.id) ? prev : [...prev, created],
@@ -302,139 +462,209 @@ export default function SchedulePage() {
     }
   }
 
+  const dayPanelAssignments = dayPanelDate
+    ? (monthByDate[dayPanelDate] ?? [])
+    : [];
+
   return (
     <>
-        <main className="flex-1 overflow-y-auto p-5 lg:p-6">
-          <ScheduleToolbar
-            view={view}
-            onViewChange={setView}
-            rangeFrom={rangeFrom}
-            rangeTo={rangeTo}
-            onPrev={() => setAnchor((d) => addDays(startOfWeek(d), -7))}
-            onNext={() => setAnchor((d) => addDays(startOfWeek(d), 7))}
-            onToday={() => setAnchor(startOfWeek(nowInAppTz()))}
-            branches={branches}
-            shifts={shifts}
-            employees={employees}
-            branchId={branchId}
-            shiftId={shiftId}
-            employeeId={employeeId}
-            search={search}
-            refreshing={refreshing}
-            onBranchChange={setBranchId}
-            onShiftChange={setShiftId}
-            onEmployeeChange={setEmployeeId}
-            onSearchChange={setSearch}
-          />
+      <main className="flex-1 overflow-y-auto p-5 lg:p-6">
+        <ScheduleToolbar
+          view={view}
+          onViewChange={handleViewChange}
+          rangeFrom={rangeFrom}
+          rangeTo={rangeTo}
+          rangeAnchor={anchor}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onToday={handleToday}
+          branches={branches}
+          shifts={shifts}
+          employees={employees}
+          branchId={branchId}
+          shiftId={shiftId}
+          employeeId={employeeId}
+          search={search}
+          refreshing={refreshing}
+          onBranchChange={setBranchId}
+          onShiftChange={setShiftId}
+          onEmployeeChange={setEmployeeId}
+          onSearchChange={setSearch}
+        />
 
-          {error ? (
-            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
-              {error}
-            </div>
-          ) : null}
+        {error ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
+            {error}
+          </div>
+        ) : null}
 
-          <div className="mt-5 flex flex-col gap-5 xl:flex-row">
-            <div className="min-w-0 flex-1">
-              {view === "week" ? (
-                <ScheduleWeekGrid
-                  days={appliedDays}
-                  rows={rows}
-                  legendShifts={shifts}
-                  loading={!catalogReady && rows.length === 0}
-                  refreshing={refreshing}
-                  onCellClick={(employee, dayIso) => {
-                    setAssignEmployee(employee);
-                    setAssignDate(dayIso);
-                    setAssignError(null);
-                    setAssignOpen(true);
-                  }}
-                  onRemoveAssignment={(a) => setPendingRemove(a)}
-                />
-              ) : view === "list" ? (
-                <div
-                  className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-                  aria-busy={refreshing || undefined}
+        <div className="mt-5 flex flex-col gap-5 xl:flex-row">
+          <div className="min-w-0 flex-1">
+            {view === "week" ? (
+              <ScheduleWeekGrid
+                days={appliedDays}
+                rows={rows}
+                legendShifts={shifts}
+                loading={!catalogReady && rows.length === 0}
+                refreshing={refreshing}
+                onCellClick={(employee, dayIso) => {
+                  setAssignEmployee(employee);
+                  setAssignDate(dayIso);
+                  setAssignError(null);
+                  setAssignOpen(true);
+                }}
+                onRemoveAssignment={(a) => setPendingRemove(a)}
+              />
+            ) : view === "list" ? (
+              <div
+                className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                aria-busy={refreshing || undefined}
+              >
+                {refreshing ? (
+                  <span className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-indigo-400" />
+                ) : null}
+                <table
+                  className={`w-full text-sm transition-opacity duration-150 ${
+                    refreshing && assignments.length > 0 ? "opacity-60" : ""
+                  }`}
                 >
-                  {refreshing ? (
-                    <span className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-indigo-400" />
-                  ) : null}
-                  <table
-                    className={`w-full text-sm transition-opacity duration-150 ${
-                      refreshing && assignments.length > 0 ? "opacity-60" : ""
-                    }`}
-                  >
-                    <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+                    <tr>
+                      <th className="px-4 py-3">Ngày</th>
+                      <th className="px-4 py-3">Nhân viên</th>
+                      <th className="px-4 py-3">Ca</th>
+                      <th className="px-4 py-3">Chi nhánh</th>
+                      <th className="px-4 py-3">Giờ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assignments.length === 0 ? (
                       <tr>
-                        <th className="px-4 py-3">Ngày</th>
-                        <th className="px-4 py-3">Nhân viên</th>
-                        <th className="px-4 py-3">Ca</th>
-                        <th className="px-4 py-3">Chi nhánh</th>
-                        <th className="px-4 py-3">Giờ</th>
+                        <td
+                          colSpan={5}
+                          className="px-4 py-12 text-center text-slate-400"
+                        >
+                          Chưa có phân ca trong khoảng này.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {assignments.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-12 text-center text-slate-400"
-                          >
-                            Chưa có phân ca trong khoảng này.
+                    ) : (
+                      assignments.map((a) => (
+                        <tr
+                          key={a.id}
+                          className="border-b border-slate-100 last:border-0"
+                        >
+                          <td className="px-4 py-3 text-slate-700">{a.date}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">
+                            {a.employee?.full_name ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {a.shift?.name ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {a.branch?.name ?? "—"}
+                          </td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {a.shift
+                              ? `${a.shift.start_time} - ${a.shift.end_time}`
+                              : "—"}
                           </td>
                         </tr>
-                      ) : (
-                        assignments.map((a) => (
-                          <tr
-                            key={a.id}
-                            className="border-b border-slate-100 last:border-0"
-                          >
-                            <td className="px-4 py-3 text-slate-700">
-                              {a.date}
-                            </td>
-                            <td className="px-4 py-3 font-medium text-slate-800">
-                              {a.employee?.full_name ?? "—"}
-                            </td>
-                            <td className="px-4 py-3 text-slate-700">
-                              {a.shift?.name ?? "—"}
-                            </td>
-                            <td className="px-4 py-3 text-slate-500">
-                              {a.branch?.name ?? "—"}
-                            </td>
-                            <td className="px-4 py-3 text-slate-500">
-                              {a.shift
-                                ? `${a.shift.start_time} - ${a.shift.end_time}`
-                                : "—"}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
-                  <p className="text-sm font-medium text-slate-700">
-                    Xem tháng đang được hoàn thiện
-                  </p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Hiện dùng tab Tuần hoặc Danh sách để quản lý phân ca.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <ScheduleSidePanel
-              overview={overview}
-              onQuickAction={(action) => {
-                if (action === "print") {
-                  window.print();
-                  return;
-                }
-                showToast("Tính năng sẽ sớm có sẵn");
-              }}
-            />
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <ScheduleMonthGrid
+                days={monthGrid}
+                byDate={monthByDate}
+                selectedDate={dayPanelDate}
+                loading={!catalogReady}
+                refreshing={refreshing}
+                onDayClick={(iso) => {
+                  setDayPanelDate(iso);
+                  setDayAdding(false);
+                  setDayEmployeeId("");
+                }}
+              />
+            )}
           </div>
-        </main>
+
+          <ScheduleSidePanel
+            overview={overview}
+            title={view === "month" ? "Tổng quan tháng" : "Tổng quan tuần"}
+            emptyAlertLabel={
+              view === "month"
+                ? "Không có cảnh báo tháng này."
+                : "Không có cảnh báo tuần này."
+            }
+            onQuickAction={(action) => {
+              if (action === "print") {
+                window.print();
+                return;
+              }
+              showToast("Tính năng sẽ sớm có sẵn");
+            }}
+            onViewAlertDetail={(kind) => {
+              setAlertDetailKind(kind);
+            }}
+          />
+        </div>
+      </main>
+
+      {alertDetailKind ? (
+        <ScheduleAlertDetailPanel
+          kind={alertDetailKind}
+          understaffedSlots={overview.understaffedSlots}
+          unscheduledEmployees={unscheduledEmployeeList}
+          onClose={() => setAlertDetailKind(null)}
+          onViewDay={(date) => {
+            setAlertDetailKind(null);
+            setDayPanelDate(date);
+            setDayAdding(false);
+            setDayEmployeeId("");
+          }}
+          onSelectEmployee={(id) => {
+            setEmployeeId(id);
+            setAlertDetailKind(null);
+            showToast("Đã lọc theo nhân viên");
+          }}
+        />
+      ) : null}
+
+      {dayPanelDate ? (
+        <ScheduleDayPanel
+          date={dayPanelDate}
+          assignments={dayPanelAssignments}
+          employees={filteredEmployees}
+          adding={dayAdding}
+          selectedEmployeeId={dayEmployeeId}
+          onSelectedEmployeeChange={setDayEmployeeId}
+          onClose={() => {
+            setDayPanelDate(null);
+            setDayAdding(false);
+            setDayEmployeeId("");
+          }}
+          onStartAdd={() => {
+            setDayAdding(true);
+            setDayEmployeeId("");
+          }}
+          onCancelAdd={() => {
+            setDayAdding(false);
+            setDayEmployeeId("");
+          }}
+          onConfirmAdd={() => {
+            if (!dayEmployeeId || !dayPanelDate) return;
+            const employee = employees.find((e) => e.id === dayEmployeeId);
+            if (!employee) return;
+            setAssignEmployee(employee);
+            setAssignDate(dayPanelDate);
+            setAssignError(null);
+            setAssignOpen(true);
+          }}
+          onRemove={(a) => setPendingRemove(a)}
+        />
+      ) : null}
 
       <AssignShiftModal
         key={`${assignEmployee?.id ?? "x"}-${assignDate ?? "d"}`}

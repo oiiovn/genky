@@ -21,14 +21,21 @@ export type WeekOverview = {
   offDays: number;
   unscheduledEmployees: number;
   understaffedShifts: number;
+  understaffedHidden?: boolean;
 };
 
 export function ScheduleSidePanel({
   overview,
+  title = "Tổng quan tuần",
+  emptyAlertLabel = "Không có cảnh báo tuần này.",
   onQuickAction,
+  onViewAlertDetail,
 }: {
   overview: WeekOverview;
+  title?: string;
+  emptyAlertLabel?: string;
   onQuickAction: (action: string) => void;
+  onViewAlertDetail?: (kind: "unscheduled" | "understaffed") => void;
 }) {
   const iconFor = (name: string, color: string) => {
     const lower = name.toLowerCase();
@@ -45,19 +52,23 @@ export function ScheduleSidePanel({
   const alerts = [
     overview.unscheduledEmployees > 0
       ? {
-          id: "unscheduled",
+          id: "unscheduled" as const,
           title: `${overview.unscheduledEmployees} nhân viên chưa có lịch`,
           tone: "amber" as const,
         }
       : null,
-    overview.understaffedShifts > 0
+    !overview.understaffedHidden && overview.understaffedShifts > 0
       ? {
-          id: "understaffed",
+          id: "understaffed" as const,
           title: `${overview.understaffedShifts} ca chưa đủ nhân sự`,
           tone: "rose" as const,
         }
       : null,
-  ].filter(Boolean) as { id: string; title: string; tone: "amber" | "rose" }[];
+  ].filter(Boolean) as {
+    id: "unscheduled" | "understaffed";
+    title: string;
+    tone: "amber" | "rose";
+  }[];
 
   const actions = [
     { id: "template", label: "Tạo lịch theo mẫu", icon: Users },
@@ -69,7 +80,7 @@ export function ScheduleSidePanel({
   return (
     <aside className="flex w-full shrink-0 flex-col gap-4 xl:w-[300px]">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-slate-800">Tổng quan tuần</h3>
+        <h3 className="font-semibold text-slate-800">{title}</h3>
         <div className="mt-4 space-y-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Tổng số ca</span>
@@ -115,8 +126,13 @@ export function ScheduleSidePanel({
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h3 className="font-semibold text-slate-800">Thông báo</h3>
         <div className="mt-3 space-y-3">
+          {overview.understaffedHidden ? (
+            <p className="text-xs text-slate-400">
+              Đang lọc theo nhân viên — tạm ẩn cảnh báo ca thiếu người.
+            </p>
+          ) : null}
           {alerts.length === 0 ? (
-            <p className="text-sm text-slate-400">Không có cảnh báo tuần này.</p>
+            <p className="text-sm text-slate-400">{emptyAlertLabel}</p>
           ) : (
             alerts.map((a) => (
               <div
@@ -141,7 +157,8 @@ export function ScheduleSidePanel({
                     </p>
                     <button
                       type="button"
-                      className="mt-1 text-xs font-semibold text-indigo-600"
+                      onClick={() => onViewAlertDetail?.(a.id)}
+                      className="mt-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
                     >
                       Xem chi tiết
                     </button>

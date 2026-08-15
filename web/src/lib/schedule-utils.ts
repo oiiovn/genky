@@ -8,6 +8,13 @@ export type WeekDay = {
   isToday: boolean;
 };
 
+export type MonthDay = {
+  iso: string;
+  dayNum: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+};
+
 const WEEKDAY_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
 export function startOfWeek(date: Date): Date {
@@ -41,6 +48,45 @@ export function formatRangeLabel(from: string, to: string): string {
   const [fy, fm, fd] = from.split("-");
   const [ty, tm, td] = to.split("-");
   return `${fd}/${fm}/${fy} - ${td}/${tm}/${ty}`;
+}
+
+export function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+}
+
+export function endOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 12, 0, 0, 0);
+}
+
+export function addMonths(date: Date, months: number): Date {
+  const d = new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+export function formatMonthLabel(date: Date): string {
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  return `Tháng ${m}/${date.getFullYear()}`;
+}
+
+/** Calendar grid Mon–Sun, up to 6 weeks. Padding days marked isCurrentMonth=false. */
+export function buildMonthGrid(anchor: Date, todayIso?: string): MonthDay[] {
+  const monthStart = startOfMonth(anchor);
+  const gridStart = startOfWeek(monthStart);
+  const today = todayIso ?? appTodayIso();
+  const monthIndex = monthStart.getMonth();
+  const year = monthStart.getFullYear();
+
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = addDays(gridStart, i);
+    const iso = toIsoDate(d);
+    return {
+      iso,
+      dayNum: d.getDate(),
+      isCurrentMonth: d.getMonth() === monthIndex && d.getFullYear() === year,
+      isToday: iso === today,
+    };
+  });
 }
 
 export function buildWeekDays(anchor: Date, todayIso?: string): WeekDay[] {

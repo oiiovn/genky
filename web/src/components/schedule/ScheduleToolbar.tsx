@@ -10,7 +10,7 @@ import {
 import type { Branch } from "@/lib/api";
 import type { Employee } from "@/lib/employees-api";
 import type { Shift } from "@/lib/shifts-api";
-import { formatRangeLabel } from "@/lib/schedule-utils";
+import { formatMonthLabel, formatRangeLabel } from "@/lib/schedule-utils";
 
 export type ScheduleViewMode = "week" | "month" | "list";
 
@@ -19,6 +19,7 @@ export function ScheduleToolbar({
   onViewChange,
   rangeFrom,
   rangeTo,
+  rangeAnchor,
   onPrev,
   onNext,
   onToday,
@@ -39,6 +40,7 @@ export function ScheduleToolbar({
   onViewChange: (v: ScheduleViewMode) => void;
   rangeFrom: string;
   rangeTo: string;
+  rangeAnchor?: Date;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
@@ -60,6 +62,13 @@ export function ScheduleToolbar({
     { id: "month", label: "Tháng" },
     { id: "list", label: "Danh sách" },
   ];
+
+  const rangeLabel =
+    view === "month" && rangeAnchor
+      ? formatMonthLabel(rangeAnchor)
+      : formatRangeLabel(rangeFrom, rangeTo);
+  const prevLabel = view === "month" ? "Tháng trước" : "Tuần trước";
+  const nextLabel = view === "month" ? "Tháng sau" : "Tuần sau";
 
   return (
     <div className="space-y-4">
@@ -83,7 +92,7 @@ export function ScheduleToolbar({
               type="button"
               onClick={onPrev}
               className="px-2.5 py-2 text-slate-500 hover:bg-slate-50"
-              aria-label="Tuần trước"
+              aria-label={prevLabel}
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -92,13 +101,13 @@ export function ScheduleToolbar({
               onClick={onToday}
               className="border-x border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              {formatRangeLabel(rangeFrom, rangeTo)}
+              {rangeLabel}
             </button>
             <button
               type="button"
               onClick={onNext}
               className="px-2.5 py-2 text-slate-500 hover:bg-slate-50"
-              aria-label="Tuần sau"
+              aria-label={nextLabel}
             >
               <ChevronRight className="h-4 w-4" />
             </button>

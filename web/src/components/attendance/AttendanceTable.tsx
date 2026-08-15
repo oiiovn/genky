@@ -1,12 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import {
-  LayoutGrid,
-  List,
-  Search,
-  SlidersHorizontal,
-} from "lucide-react";
+import { Search } from "lucide-react";
 import type {
   AttendanceRow,
   AttendanceUiStatus,
@@ -135,27 +130,6 @@ export function AttendanceTable({
             className="w-52 rounded-xl border border-slate-200 bg-slate-50 py-2 pr-3 pl-9 text-sm outline-none focus:border-indigo-400 focus:bg-white"
           />
         </div>
-        <button
-          type="button"
-          className="rounded-xl border border-indigo-200 bg-indigo-50 p-2 text-indigo-500"
-          aria-label="Danh sách"
-        >
-          <List className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          className="rounded-xl border border-slate-200 p-2 text-slate-400"
-          aria-label="Lưới"
-        >
-          <LayoutGrid className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          className="rounded-xl border border-slate-200 p-2 text-slate-400"
-          aria-label="Bộ lọc"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="overflow-x-auto">
