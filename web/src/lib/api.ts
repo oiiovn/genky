@@ -96,6 +96,16 @@ export type MeResponse = {
       id: number;
       employee_code: string;
       full_name: string;
+      phone?: string | null;
+      email?: string | null;
+      avatar?: string | null;
+      gender?: string | null;
+      date_of_birth?: string | null;
+      address?: string | null;
+      identity_number?: string | null;
+      joined_at?: string | null;
+      position?: { id: number; name: string } | null;
+      role?: { id: number; name: string; slug?: string } | null;
       branches: { id: number; name: string; is_primary: boolean }[];
     } | null;
     custom_role: {
@@ -252,7 +262,7 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const json =
     typeof init.body === "string" ||
     (init.body !== undefined && !(init.body instanceof FormData));
@@ -576,6 +586,18 @@ export async function refreshShell(): Promise<ShellData> {
   cachedShell = null;
   shellInFlight = null;
   return fetchShell();
+}
+
+export async function switchCurrentBranch(branchId: number): Promise<ShellData> {
+  const res = await authFetch(`${apiUrl()}/me/current-branch`, {
+    method: "PUT",
+    body: JSON.stringify({ branch_id: branchId }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const value = (await res.json()) as ShellData;
+  const token = getAccessToken();
+  if (token) cachedShell = { token, value };
+  return value;
 }
 
 export async function fetchDashboard(): Promise<DashboardData> {

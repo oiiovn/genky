@@ -12,6 +12,7 @@ import {
 } from "@/components/dashboard/SideWidgets";
 import { fetchDashboard } from "@/lib/api";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
+import { useAdminShell } from "@/components/admin/AdminShell";
 import type { DashboardData } from "@/types/dashboard";
 
 const SalaryProjection = dynamic(
@@ -41,10 +42,13 @@ const PersonnelCosts = dynamic(
 );
 
 export default function DashboardPage() {
+  const { shell } = useAdminShell();
   const [data, setData] = useState<DashboardData | null>(null);
+  const branchId = shell.branch?.id ?? 0;
 
   useEffect(() => {
     let cancelled = false;
+    setData(null);
     fetchDashboard()
       .then((dashboard) => {
         if (!cancelled) setData(dashboard);
@@ -55,7 +59,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [branchId]);
 
   const reload = useCallback(async () => {
     setData(await fetchDashboard());

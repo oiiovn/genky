@@ -122,6 +122,7 @@ class ActivityActionMap
 
             ['methods' => ['PUT', 'PATCH'], 'pattern' => '#^me$#', 'action' => 'update', 'label' => 'Cập nhật hồ sơ tài khoản', 'object' => 'Tài khoản'],
             ['methods' => ['POST'], 'pattern' => '#^me/avatar$#', 'action' => 'update', 'label' => 'Cập nhật ảnh đại diện', 'object' => 'Tài khoản'],
+            ['methods' => ['PUT', 'PATCH'], 'pattern' => '#^me/staff-profile$#', 'action' => 'update', 'label' => 'Cập nhật hồ sơ nhân viên', 'object' => 'Hồ sơ cá nhân'],
             ['methods' => ['PUT', 'PATCH'], 'pattern' => '#^me/preferences$#', 'action' => 'update', 'label' => 'Cập nhật tuỳ chọn giao diện', 'object' => 'Tuỳ chọn'],
 
             ['methods' => ['POST'], 'pattern' => '#^positions$#', 'action' => 'create', 'label' => 'Tạo chức vụ', 'input' => 'name'],

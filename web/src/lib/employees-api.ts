@@ -29,6 +29,7 @@ export type Employee = {
   gender: string | null;
   date_of_birth: string | null;
   address: string | null;
+  identity_number?: string | null;
   role: EmployeeRole;
   position: EmployeePosition;
   employment_type: string;

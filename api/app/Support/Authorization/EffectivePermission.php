@@ -284,7 +284,7 @@ class EffectivePermission
     public function payload(): array
     {
         $employee = Employee::query()
-            ->with('branches')
+            ->with(['branches', 'position', 'role'])
             ->where('user_id', $this->user->id)
             ->first();
 
@@ -303,6 +303,23 @@ class EffectivePermission
                 'id' => $employee->id,
                 'employee_code' => $employee->employee_code,
                 'full_name' => $employee->full_name,
+                'phone' => $employee->phone,
+                'email' => $employee->email,
+                'avatar' => $employee->avatar,
+                'gender' => $employee->gender,
+                'date_of_birth' => $employee->date_of_birth?->toDateString(),
+                'address' => $employee->address,
+                'identity_number' => $employee->identity_number,
+                'joined_at' => $employee->joined_at?->toDateString(),
+                'position' => $employee->position ? [
+                    'id' => $employee->position->id,
+                    'name' => $employee->position->name,
+                ] : null,
+                'role' => $employee->role ? [
+                    'id' => $employee->role->id,
+                    'name' => $employee->role->name,
+                    'slug' => $employee->role->slug,
+                ] : null,
                 'branches' => $employee->branches->map(fn ($b) => [
                     'id' => $b->id,
                     'name' => $b->name,

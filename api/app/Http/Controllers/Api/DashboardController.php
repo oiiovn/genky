@@ -28,17 +28,38 @@ class DashboardController extends Controller
         return response()->json($this->chrome($request));
     }
 
+    public function switchCurrentBranch(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'branch_id' => ['required', 'integer', 'exists:branches,id'],
+        ]);
+
+        $branch = Branch::query()->findOrFail((int) $data['branch_id']);
+        $user = $request->user();
+        $user->forceFill(['current_branch_id' => $branch->id])->save();
+
+        return response()->json($this->chrome($request));
+    }
+
     public function overview(Request $request): JsonResponse
     {
         $chrome = $this->chrome($request);
         $now = Carbon::now('Asia/Ho_Chi_Minh');
         $today = $now->toDateString();
+        $branchId = ((int) ($chrome['branch']['id'] ?? 0)) ?: null;
 
         $totalEmployees = Employee::query()
             ->where('status', Employee::STATUS_ACTIVE)
+            ->when(
+                $branchId,
+                fn ($q) => $q->whereHas(
+                    'branches',
+                    fn ($b) => $b->where('branches.id', $branchId)
+                )
+            )
             ->count();
 
-        $attendance = $this->safeAttendanceSnapshot($today);
+        $attendance = $this->safeAttendanceSnapshot($today, $branchId);
         $notifications = $this->buildNotifications(
             $totalEmployees,
             $attendance,
@@ -60,7 +81,7 @@ class DashboardController extends Controller
             'salary_projection' => $this->salaryProjection($now, $totalEmployees),
             'personnel_costs' => $this->mockPersonnelCosts($now),
             'performance' => $this->buildPerformance($attendance),
-            'upcoming_shifts' => $this->upcomingShifts($today),
+            'upcoming_shifts' => $this->upcomingShifts($today, $branchId),
         ]);
     }
 
@@ -78,6 +99,8 @@ class DashboardController extends Controller
             ->get(['id', 'name', 'is_headquarters', 'address']);
 
         $primaryBranch = $branches->firstWhere('is_headquarters', true) ?? $branches->first();
+        $currentBranch = $branches->firstWhere('id', (int) ($user?->current_branch_id ?? 0))
+            ?? $primaryBranch;
         $now = Carbon::now('Asia/Ho_Chi_Minh');
         $weekdays = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
 
@@ -97,16 +120,16 @@ class DashboardController extends Controller
             'access' => $access?->payload(),
             'tenant' => [
                 'name' => $org?->name ?? '—',
-                'branch' => $primaryBranch
-                    ? ($primaryBranch->is_headquarters ? 'Chi nhánh '.$primaryBranch->name : $primaryBranch->name)
+                'branch' => $currentBranch
+                    ? ($currentBranch->is_headquarters ? 'Chi nhánh '.$currentBranch->name : $currentBranch->name)
                     : 'Chưa có chi nhánh',
                 'avatar' => 'https://i.pravatar.cc/80?u='.urlencode((string) ($org?->slug ?? 'org')),
                 'logo_url' => $org?->logoUrl(),
                 'has_logo' => filled($org?->logo_path),
             ],
-            'branch' => $primaryBranch ? [
-                'id' => $primaryBranch->id,
-                'name' => 'Chi nhánh '.$primaryBranch->name,
+            'branch' => $currentBranch ? [
+                'id' => $currentBranch->id,
+                'name' => 'Chi nhánh '.$currentBranch->name,
             ] : [
                 'id' => 0,
                 'name' => 'Chưa có chi nhánh',
@@ -157,7 +180,7 @@ class DashboardController extends Controller
     /**
      * @return array{rows: list<array<string, mixed>>, working: int, not_checked_in: int, late: int, absent: int, on_leave: int, ontime: int}
      */
-    protected function safeAttendanceSnapshot(string $date): array
+    protected function safeAttendanceSnapshot(string $date, ?int $branchId = null): array
     {
         $empty = [
             'rows' => [],
@@ -170,11 +193,16 @@ class DashboardController extends Controller
         ];
 
         try {
-            $paginator = $this->attendance->list([
+            $filters = [
                 'date' => $date,
                 'per_page' => 50,
                 'page' => 1,
-            ]);
+            ];
+            if ($branchId) {
+                $filters['branch_id'] = $branchId;
+            }
+
+            $paginator = $this->attendance->list($filters);
 
             $source = collect($paginator->items());
             $working = $source->where('ui_status', 'working')->count();
@@ -384,7 +412,7 @@ class DashboardController extends Controller
     /**
      * @return list<array<string, mixed>>
      */
-    protected function upcomingShifts(string $fromDate): array
+    protected function upcomingShifts(string $fromDate, ?int $branchId = null): array
     {
         try {
             $from = Carbon::parse($fromDate)->startOfDay();
@@ -394,6 +422,7 @@ class DashboardController extends Controller
                 ->with('shift')
                 ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
                 ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+                ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
                 ->orderBy('date')
                 ->get()
                 ->groupBy(fn (ShiftAssignment $a) => $a->date->toDateString().'|'.($a->shift_id ?? 0));
@@ -428,6 +457,7 @@ class DashboardController extends Controller
             // Fallback: ca đang active trong org
             return Shift::query()
                 ->where('status', Shift::STATUS_ACTIVE)
+                ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
                 ->orderBy('start_time')
                 ->limit(3)
                 ->get()

@@ -5,6 +5,8 @@ export type StaffSession = {
   employeeId: number;
   employeeCode: string;
   fullName: string;
+  avatar: string | null;
+  phone: string | null;
   branches: { id: number; name: string; is_primary: boolean }[];
   orgName: string;
 };
@@ -24,6 +26,8 @@ export function staffSessionFromMe(me: MeResponse): StaffSession | null {
     employeeId,
     employeeCode: emp.employee_code,
     fullName: emp.full_name,
+    avatar: emp.avatar ?? me.user.avatar_url ?? null,
+    phone: emp.phone ?? me.user.phone ?? null,
     branches: emp.branches ?? [],
     orgName: me.organization?.name ?? "Genky",
   };

@@ -72,6 +72,27 @@ export function EmployeeViewModal({
           <Field label="Chức vụ" value={employee.position?.name ?? "—"} />
           <Field label="Chi nhánh" value={primary?.name ?? "—"} />
           <Field
+            label="Giới tính"
+            value={
+              employee.gender === "female"
+                ? "Nữ"
+                : employee.gender === "male"
+                  ? "Nam"
+                  : employee.gender === "other"
+                    ? "Khác"
+                    : "—"
+            }
+          />
+          <Field
+            label="Ngày sinh"
+            value={
+              employee.date_of_birth
+                ? new Date(employee.date_of_birth).toLocaleDateString("vi-VN")
+                : "—"
+            }
+          />
+          <Field label="CMND/CCCD" value={employee.identity_number ?? "—"} />
+          <Field
             label="Trạng thái"
             value={statusLabel[employee.status] ?? employee.status}
           />
@@ -88,6 +109,9 @@ export function EmployeeViewModal({
             label="Tài khoản"
             value={employee.has_user_account ? "Đã có tài khoản" : "Chưa có tài khoản"}
           />
+          <div className="col-span-2">
+            <Field label="Địa chỉ" value={employee.address ?? "—"} />
+          </div>
         </div>
 
         <div className="mt-4 flex gap-2">

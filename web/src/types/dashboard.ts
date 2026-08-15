@@ -32,6 +32,16 @@ export type ShellAccess = {
     id: number;
     employee_code: string;
     full_name: string;
+    phone?: string | null;
+    email?: string | null;
+    avatar?: string | null;
+    gender?: string | null;
+    date_of_birth?: string | null;
+    address?: string | null;
+    identity_number?: string | null;
+    joined_at?: string | null;
+    position?: { id: number; name: string } | null;
+    role?: { id: number; name: string; slug?: string } | null;
     branches: { id: number; name: string; is_primary: boolean }[];
   } | null;
   permissions: Record<

@@ -28,6 +28,7 @@ class Employee extends Model
         'gender',
         'date_of_birth',
         'address',
+        'identity_number',
         'position_id',
         'role_id',
         'employment_type',

@@ -114,6 +114,7 @@ class EmployeeService
                 'gender' => $data['gender'] ?? null,
                 'date_of_birth' => $data['date_of_birth'] ?? null,
                 'address' => $data['address'] ?? null,
+                'identity_number' => $data['identity_number'] ?? null,
                 'position_id' => $data['position_id'] ?? null,
                 'role_id' => $roleId,
                 'employment_type' => $data['employment_type'] ?? 'full_time',
@@ -154,6 +155,7 @@ class EmployeeService
                 'gender',
                 'date_of_birth',
                 'address',
+                'identity_number',
                 'position_id',
                 'role_id',
                 'employment_type',
@@ -179,6 +181,8 @@ class EmployeeService
                     'address',
                     'gender',
                     'date_of_birth',
+                    'identity_number',
+                    'full_name',
                 ])->all());
             }
 
@@ -483,6 +487,7 @@ class EmployeeService
             'gender' => $employee->gender,
             'date_of_birth' => $employee->date_of_birth?->toDateString(),
             'address' => $employee->address,
+            'identity_number' => $employee->identity_number,
             'role' => $employee->role ? [
                 'id' => $employee->role->id,
                 'name' => $employee->role->name,

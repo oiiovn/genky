@@ -2,6 +2,7 @@
 
 namespace App\Services\Auth;
 
+use App\Models\Employee;
 use App\Models\LoginHistory;
 use App\Models\RefreshToken;
 use App\Models\User;
@@ -89,8 +90,16 @@ class AccountSecurityService
 
         $path = $file->store('user-avatars/'.$user->id, 'public');
         $user->forceFill(['avatar_path' => $path])->save();
+        $user = $user->fresh();
 
-        return $user->fresh();
+        $avatarUrl = $user->avatarUrl();
+        if ($avatarUrl) {
+            Employee::query()
+                ->where('user_id', $user->id)
+                ->update(['avatar' => $avatarUrl]);
+        }
+
+        return $user;
     }
 
     public function avatarFile(User $user): \Symfony\Component\HttpFoundation\StreamedResponse

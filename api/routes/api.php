@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\PositionController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ShiftAssignmentController;
 use App\Http\Controllers\Api\ShiftController;
+use App\Http\Controllers\Api\StaffProfileController;
 use App\Http\Controllers\Api\TimesheetController;
 use App\Http\Controllers\Api\LeaveController;
 use App\Http\Controllers\Api\AdjustmentController;
@@ -55,6 +56,11 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     Route::put('me/preferences', [UserPreferencesController::class, 'update']);
     Route::patch('me/preferences', [UserPreferencesController::class, 'update']);
     Route::post('me/preferences/sidebar/toggle', [UserPreferencesController::class, 'toggleSidebar']);
+    Route::put('me/current-branch', [DashboardController::class, 'switchCurrentBranch']);
+    Route::patch('me/current-branch', [DashboardController::class, 'switchCurrentBranch']);
+    Route::get('me/staff-profile', [StaffProfileController::class, 'show']);
+    Route::put('me/staff-profile', [StaffProfileController::class, 'update']);
+    Route::patch('me/staff-profile', [StaffProfileController::class, 'update']);
     Route::get('shell', [DashboardController::class, 'shell']);
     Route::get('dashboard', [DashboardController::class, 'overview']);
 
