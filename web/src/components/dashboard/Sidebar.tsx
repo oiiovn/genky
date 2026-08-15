@@ -7,6 +7,7 @@ import clsx from "clsx";
 import {
   Award,
   CalendarDays,
+  ChevronDown,
   ClipboardList,
   Clock,
   FileBarChart,
@@ -23,27 +24,53 @@ import { useAppearance } from "@/components/appearance/AppearanceProvider";
 import { CompanyBrand } from "@/components/dashboard/CompanyBrand";
 import type { ShellData } from "@/types/dashboard";
 
-const hrNav = [
-  { label: "Tổng quan", icon: LayoutDashboard, href: "/dashboard" },
-  { label: "Nhân viên", icon: Users, href: "/employees" },
-  { label: "Ca làm", icon: Clock, href: "/shifts" },
-  { label: "Chấm công", icon: Timer, href: "/attendance" },
-  { label: "QR chấm công", icon: QrCode, href: "/attendance/qr" },
-  { label: "Lịch làm việc", icon: CalendarDays, href: "/schedule" },
-  { label: "Bảng công", icon: ClipboardList, href: "/timesheet" },
-  { label: "Lương", icon: Wallet, href: "/payroll" },
-  { label: "Thưởng / Phạt", icon: Award, href: "/adjustments" },
-  { label: "Nghỉ phép", icon: Umbrella, href: "/leaves" },
-];
+type NavItemConfig = {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  href: string;
+};
 
-const reportNav = [
-  { label: "Hiệu suất", icon: TrendingUp, href: "#" },
-  { label: "Chi phí nhân sự", icon: Wallet, href: "#" },
-  { label: "Báo cáo", icon: FileBarChart, href: "#" },
-];
+type NavGroup = {
+  id: string;
+  title: string;
+  collapsible: boolean;
+  items: NavItemConfig[];
+};
 
-const systemNav = [
-  { label: "Cài đặt", icon: Settings, href: "/settings/general" },
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: "hr",
+    title: "Quản lý nhân sự",
+    collapsible: true,
+    items: [
+      { label: "Tổng quan", icon: LayoutDashboard, href: "/dashboard" },
+      { label: "Nhân viên", icon: Users, href: "/employees" },
+      { label: "Ca làm", icon: Clock, href: "/shifts" },
+      { label: "Chấm công", icon: Timer, href: "/attendance" },
+      { label: "QR chấm công", icon: QrCode, href: "/attendance/qr" },
+      { label: "Lịch làm việc", icon: CalendarDays, href: "/schedule" },
+      { label: "Bảng công", icon: ClipboardList, href: "/timesheet" },
+      { label: "Lương", icon: Wallet, href: "/payroll" },
+      { label: "Thưởng / Phạt", icon: Award, href: "/adjustments" },
+      { label: "Nghỉ phép", icon: Umbrella, href: "/leaves" },
+    ],
+  },
+  {
+    id: "reports",
+    title: "Báo cáo",
+    collapsible: false,
+    items: [
+      { label: "Hiệu suất", icon: TrendingUp, href: "#" },
+      { label: "Chi phí nhân sự", icon: Wallet, href: "#" },
+      { label: "Báo cáo", icon: FileBarChart, href: "#" },
+    ],
+  },
+  {
+    id: "system",
+    title: "Hệ thống",
+    collapsible: false,
+    items: [{ label: "Cài đặt", icon: Settings, href: "/settings/general" }],
+  },
 ];
 
 function InstantTip({
@@ -132,6 +159,29 @@ function NavItem({
   );
 }
 
+function GroupItems({
+  items,
+  active,
+  collapsed,
+}: {
+  items: NavItemConfig[];
+  active?: string;
+  collapsed?: boolean;
+}) {
+  return (
+    <div className="space-y-0.5">
+      {items.map((item) => (
+        <NavItem
+          key={item.label}
+          {...item}
+          active={item.label === active}
+          collapsed={collapsed}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar({
   tenant,
   active = "Tổng quan",
@@ -142,6 +192,15 @@ export function Sidebar({
 }) {
   const appearance = useAppearance();
   const collapsed = appearance.sidebar === "collapsed";
+  const [manual, setManual] = useState<{
+    active: string;
+    open: boolean;
+  } | null>(null);
+
+  function toggleGroup(childActive: boolean) {
+    const current = manual?.active === active ? manual.open : childActive;
+    setManual({ active, open: !current });
+  }
 
   return (
     <aside
@@ -160,54 +219,69 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
-        <div>
-          {collapsed ? null : (
-            <p className="mb-2 px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-              Quản lý nhân sự
-            </p>
-          )}
-          <div className="space-y-0.5">
-            {hrNav.map((item) => (
-              <NavItem
-                key={item.label}
-                {...item}
-                active={item.label === active}
-                collapsed={collapsed}
-              />
-            ))}
-          </div>
-        </div>
+        {NAV_GROUPS.map((group) => {
+          const childActive = group.items.some((item) => item.label === active);
+          const open =
+            !group.collapsible ||
+            (manual?.active === active ? manual.open : childActive);
+          const panelId = `nav-group-${group.id}`;
 
-        <div>
-          {collapsed ? null : (
-            <p className="mb-2 px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-              Báo cáo
-            </p>
-          )}
-          <div className="space-y-0.5">
-            {reportNav.map((item) => (
-              <NavItem key={item.label} {...item} collapsed={collapsed} />
-            ))}
-          </div>
-        </div>
+          if (collapsed) {
+            return (
+              <div key={group.id}>
+                <GroupItems
+                  items={group.items}
+                  active={active}
+                  collapsed
+                />
+              </div>
+            );
+          }
 
-        <div>
-          {collapsed ? null : (
-            <p className="mb-2 px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-              Hệ thống
-            </p>
-          )}
-          <div className="space-y-0.5">
-            {systemNav.map((item) => (
-              <NavItem
-                key={item.label}
-                {...item}
-                active={item.label === active}
-                collapsed={collapsed}
-              />
-            ))}
-          </div>
-        </div>
+          if (!group.collapsible) {
+            return (
+              <div key={group.id}>
+                <p className="mb-2 px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+                  {group.title}
+                </p>
+                <GroupItems items={group.items} active={active} />
+              </div>
+            );
+          }
+
+          return (
+            <div key={group.id}>
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={panelId}
+                aria-label={group.title}
+                onClick={() => toggleGroup(childActive)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              >
+                <Users className="h-4 w-4 text-slate-400" />
+                <span className="flex-1 text-left">{group.title}</span>
+                <ChevronDown
+                  className={clsx(
+                    "h-4 w-4 text-slate-400 transition-transform duration-150",
+                    open && "rotate-180",
+                  )}
+                />
+              </button>
+              <div
+                id={panelId}
+                className={clsx(
+                  "grid transition-[grid-template-rows] duration-150 ease-out",
+                  open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                )}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <GroupItems items={group.items} active={active} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );
