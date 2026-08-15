@@ -193,7 +193,7 @@ export function AddMarketingReviewModal({
           data.branches.some((b) => b.id === preferredBranchId)
             ? preferredBranchId
             : data.branches[0]?.id ?? "";
-        setBranchId(pref === "" ? "" : Number(pref));
+        setBranchId(typeof pref === "number" ? pref : "");
         setChannelId(data.channels[0]?.id ?? "");
       })
       .catch((e: unknown) => {
