@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -39,9 +39,11 @@ export default function SchedulePage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<ScheduleAssignment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [listLoading, setListLoading] = useState(false);
+  const [catalogReady, setCatalogReady] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const [view, setView] = useState<ScheduleViewMode>("week");
@@ -64,6 +66,7 @@ export default function SchedulePage() {
   const weekDays = useMemo(() => buildWeekDays(anchor, todayIso()), [anchor]);
   const rangeFrom = weekDays[0]?.iso ?? toIsoDate(anchor);
   const rangeTo = weekDays[6]?.iso ?? toIsoDate(addDays(anchor, 6));
+  const [appliedDays, setAppliedDays] = useState(weekDays);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -71,24 +74,40 @@ export default function SchedulePage() {
   }, []);
 
   const loadAssignments = useCallback(async () => {
-    setListLoading(true);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const requestId = ++requestIdRef.current;
+    const daysForRequest = weekDays;
+    setRefreshing(true);
     setError(null);
     try {
-      const data = await fetchScheduleAssignments({
-        branch_id: branchId,
-        shift_id: shiftId,
-        employee_id: employeeId,
-        date_from: rangeFrom,
-        date_to: rangeTo,
-        status: "assigned",
-      });
+      const data = await fetchScheduleAssignments(
+        {
+          branch_id: branchId,
+          shift_id: shiftId,
+          employee_id: employeeId,
+          date_from: rangeFrom,
+          date_to: rangeTo,
+          status: "assigned",
+        },
+        controller.signal,
+      );
+      if (requestId !== requestIdRef.current) return;
       setAssignments(data);
+      setAppliedDays(daysForRequest);
     } catch (err) {
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+        return;
+      }
+      if (requestId !== requestIdRef.current) return;
       setError(err instanceof Error ? err.message : "Không tải được lịch.");
     } finally {
-      setListLoading(false);
+      if (requestId === requestIdRef.current && !controller.signal.aborted) {
+        setRefreshing(false);
+      }
     }
-  }, [branchId, shiftId, employeeId, rangeFrom, rangeTo]);
+  }, [branchId, shiftId, employeeId, rangeFrom, rangeTo, weekDays]);
 
   useEffect(() => {
     async function boot() {
@@ -104,7 +123,7 @@ export default function SchedulePage() {
         setShifts(shiftList.data);
         setEmployees(empList.data);
       } finally {
-        setLoading(false);
+        setCatalogReady(true);
       }
     }
     void boot();
@@ -112,6 +131,9 @@ export default function SchedulePage() {
 
   useEffect(() => {
     void loadAssignments();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [loadAssignments]);
 
   const filteredEmployees = useMemo(() => {
@@ -196,7 +218,7 @@ export default function SchedulePage() {
     let unscheduledEmployees = 0;
     for (const row of rows) {
       let hasAny = false;
-      for (const day of weekDays) {
+      for (const day of appliedDays) {
         const cells = row.byDate[day.iso] ?? [];
         if (cells.length === 0) offDays += 1;
         else hasAny = true;
@@ -220,7 +242,7 @@ export default function SchedulePage() {
       unscheduledEmployees,
       understaffedShifts,
     };
-  }, [assignments, shifts, rows, weekDays]);
+  }, [assignments, shifts, rows, appliedDays]);
 
   async function handleAssign(payload: {
     shift_id: number;
@@ -231,7 +253,7 @@ export default function SchedulePage() {
     setAssignSaving(true);
     setAssignError(null);
     try {
-      await createScheduleAssignment({
+      const created = await createScheduleAssignment({
         employee_id: assignEmployee.id,
         shift_id: payload.shift_id,
         branch_id: payload.branch_id,
@@ -241,8 +263,13 @@ export default function SchedulePage() {
       setAssignOpen(false);
       setAssignEmployee(null);
       setAssignDate(null);
+      if (created?.id) {
+        setAssignments((prev) =>
+          prev.some((row) => row.id === created.id) ? prev : [...prev, created],
+        );
+      }
       showToast("Đã phân ca thành công");
-      await loadAssignments();
+      void loadAssignments();
     } catch (err) {
       setAssignError(err instanceof Error ? err.message : "Phân ca thất bại.");
     } finally {
@@ -254,23 +281,17 @@ export default function SchedulePage() {
     if (!pendingRemove) return;
     setRemoving(true);
     try {
-      await deleteScheduleAssignment(pendingRemove.id);
+      const removedId = pendingRemove.id;
+      await deleteScheduleAssignment(removedId);
       setPendingRemove(null);
+      setAssignments((prev) => prev.filter((row) => row.id !== removedId));
       showToast("Đã gỡ ca khỏi lịch");
-      await loadAssignments();
+      void loadAssignments();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể gỡ ca.");
     } finally {
       setRemoving(false);
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F6] text-slate-500">
-        Đang tải...
-      </div>
-    );
   }
 
   return (
@@ -299,6 +320,7 @@ export default function SchedulePage() {
             shiftId={shiftId}
             employeeId={employeeId}
             search={search}
+            refreshing={refreshing}
             onBranchChange={setBranchId}
             onShiftChange={setShiftId}
             onEmployeeChange={setEmployeeId}
@@ -315,10 +337,11 @@ export default function SchedulePage() {
             <div className="min-w-0 flex-1">
               {view === "week" ? (
                 <ScheduleWeekGrid
-                  days={weekDays}
+                  days={appliedDays}
                   rows={rows}
                   legendShifts={shifts}
-                  loading={listLoading}
+                  loading={!catalogReady && rows.length === 0}
+                  refreshing={refreshing}
                   onCellClick={(employee, dayIso) => {
                     setAssignEmployee(employee);
                     setAssignDate(dayIso);
@@ -328,8 +351,18 @@ export default function SchedulePage() {
                   onRemoveAssignment={(a) => setPendingRemove(a)}
                 />
               ) : view === "list" ? (
-                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <table className="w-full text-sm">
+                <div
+                  className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  aria-busy={refreshing || undefined}
+                >
+                  {refreshing ? (
+                    <span className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-indigo-400" />
+                  ) : null}
+                  <table
+                    className={`w-full text-sm transition-opacity duration-150 ${
+                      refreshing && assignments.length > 0 ? "opacity-60" : ""
+                    }`}
+                  >
                     <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
                       <tr>
                         <th className="px-4 py-3">Ngày</th>

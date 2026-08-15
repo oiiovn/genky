@@ -49,11 +49,37 @@ function ShiftChip({
   );
 }
 
+function GridSkeleton({ days }: { days: WeekDay[] }) {
+  return (
+    <>
+      {Array.from({ length: 6 }, (_, index) => (
+        <tr key={`skeleton-${index}`} className="border-b border-slate-100">
+          <td className="sticky left-0 z-10 bg-white px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-slate-100" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="h-3 w-28 rounded bg-slate-100" />
+                <div className="h-2.5 w-16 rounded bg-slate-50" />
+              </div>
+            </div>
+          </td>
+          {days.map((day) => (
+            <td key={day.iso} className="px-1.5 py-2">
+              <div className="min-h-[72px] rounded-xl bg-slate-50" />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
 export function ScheduleWeekGrid({
   days,
   rows,
   legendShifts,
   loading,
+  refreshing,
   onCellClick,
   onRemoveAssignment,
 }: {
@@ -61,11 +87,22 @@ export function ScheduleWeekGrid({
   rows: ScheduleRow[];
   legendShifts: Shift[];
   loading?: boolean;
+  refreshing?: boolean;
   onCellClick: (employee: Employee, dayIso: string) => void;
   onRemoveAssignment: (assignment: ScheduleAssignment) => void;
 }) {
+  const showSkeleton = rows.length === 0 && Boolean(loading);
+  const showEmpty = rows.length === 0 && !loading;
+  const dimRows = Boolean(refreshing) && rows.length > 0;
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div
+      className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      aria-busy={refreshing || loading || undefined}
+    >
+      {refreshing ? (
+        <span className="pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5 bg-indigo-400" />
+      ) : null}
       <div className="overflow-x-auto">
         <table className="min-w-[980px] w-full border-collapse">
           <thead>
@@ -95,17 +132,15 @@ export function ScheduleWeekGrid({
               ))}
             </tr>
           </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td
-                  colSpan={8}
-                  className="px-4 py-16 text-center text-sm text-slate-400"
-                >
-                  Đang tải lịch...
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
+          <tbody
+            className={clsx(
+              "transition-opacity duration-150",
+              dimRows && "opacity-60",
+            )}
+          >
+            {showSkeleton ? (
+              <GridSkeleton days={days} />
+            ) : showEmpty ? (
               <tr>
                 <td
                   colSpan={8}

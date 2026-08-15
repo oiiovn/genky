@@ -67,6 +67,7 @@ async function parseError(res: Response): Promise<string> {
 
 export async function fetchScheduleAssignments(
   filters: ScheduleFilters = {},
+  signal?: AbortSignal,
 ): Promise<ScheduleAssignment[]> {
   const params = new URLSearchParams();
   if (filters.branch_id) params.set("branch_id", String(filters.branch_id));
@@ -79,6 +80,7 @@ export async function fetchScheduleAssignments(
   const res = await fetch(`${apiUrl()}/shift-assignments?${params.toString()}`, {
     headers: authHeaders(false),
     cache: "no-store",
+    signal,
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();

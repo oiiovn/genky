@@ -29,6 +29,7 @@ export function ScheduleToolbar({
   shiftId,
   employeeId,
   search,
+  refreshing,
   onBranchChange,
   onShiftChange,
   onEmployeeChange,
@@ -48,6 +49,7 @@ export function ScheduleToolbar({
   shiftId: number | "";
   employeeId: number | "";
   search: string;
+  refreshing?: boolean;
   onBranchChange: (v: number | "") => void;
   onShiftChange: (v: number | "") => void;
   onEmployeeChange: (v: number | "") => void;
@@ -76,7 +78,7 @@ export function ScheduleToolbar({
             <Settings2 className="h-4 w-4" />
             Tùy chọn
           </button>
-          <div className="inline-flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="relative inline-flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
             <button
               type="button"
               onClick={onPrev}
@@ -100,6 +102,9 @@ export function ScheduleToolbar({
             >
               <ChevronRight className="h-4 w-4" />
             </button>
+            {refreshing ? (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-indigo-400" />
+            ) : null}
           </div>
         </div>
       </div>
