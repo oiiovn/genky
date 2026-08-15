@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAdminChrome } from "@/components/admin/AdminShell";
 import { AssignShiftModal } from "@/components/schedule/AssignShiftModal";
 import { ScheduleSidePanel } from "@/components/schedule/ScheduleSidePanel";
@@ -32,6 +33,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export default function SchedulePage() {
   const { branches } = useAdminChrome();
+  const searchParams = useSearchParams();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<ScheduleAssignment[]>([]);
@@ -45,9 +47,19 @@ export default function SchedulePage() {
   const [view, setView] = useState<ScheduleViewMode>("week");
   const [anchor, setAnchor] = useState(() => startOfWeek(nowInAppTz()));
   const [branchId, setBranchId] = useState<number | "">("");
-  const [shiftId, setShiftId] = useState<number | "">("");
+  const [shiftId, setShiftId] = useState<number | "">(() => {
+    const raw = searchParams.get("shift_id");
+    const id = raw ? Number(raw) : NaN;
+    return Number.isFinite(id) && id > 0 ? id : "";
+  });
   const [employeeId, setEmployeeId] = useState<number | "">("");
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const raw = searchParams.get("shift_id");
+    const id = raw ? Number(raw) : NaN;
+    setShiftId(Number.isFinite(id) && id > 0 ? id : "");
+  }, [searchParams]);
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignEmployee, setAssignEmployee] = useState<Employee | null>(null);

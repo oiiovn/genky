@@ -34,8 +34,7 @@ class PayrollService
     public function __construct(
         private readonly EmployeeService $employees,
         private readonly MonthlyWorkSummaryService $monthly,
-    ) {
-    }
+    ) {}
 
     protected function ensureMonth(int $year, int $month): void
     {
@@ -898,16 +897,14 @@ class PayrollService
         $worked = 'coalesce(mws.payroll_worked_minutes, 0)';
         $paidLeaveM = 'coalesce(mws.payroll_paid_leave_minutes, 0)';
         $unpaidLeaveM = 'coalesce(mws.payroll_unpaid_leave_minutes, 0)';
-        $assignM = 'coalesce(mws.payroll_assignment_minutes, 0)';
-        $leaveDays = 'coalesce(mws.payroll_leave_days, 0)';
         $unpaidDays = 'coalesce(mws.payroll_unpaid_days, 0)';
         $amount = 'coalesce(employees.salary_amount, 0)';
-        $incomeMinutes = "case when {$assignM} > 0 then {$assignM} when employees.salary_type = 'hourly' then {$worked} + {$paidLeaveM} else {$worked} + {$paidLeaveM} + {$unpaidLeaveM} end";
+        $incomeMinutes = "case when employees.salary_type = 'hourly' then {$worked} + {$paidLeaveM} else {$worked} + {$paidLeaveM} + {$unpaidLeaveM} end";
         $hours = "({$incomeMinutes}) / 60.0";
         $monthlyCap = "{$amount} * 1.2";
         $hourlyFromMonthly = "({$amount} / 176.0) * ({$hours})";
         $cappedMonthly = "case when {$monthlyCap} < {$hourlyFromMonthly} then {$monthlyCap} else {$hourlyFromMonthly} end";
-        $rawIncome = "case when employees.salary_type = 'hourly' then {$amount} * ({$hours}) when ({$incomeMinutes}) <= 0 and {$leaveDays} > 0 then 0 when ({$incomeMinutes}) <= 0 then {$amount} * 0.5 else {$cappedMonthly} end";
+        $rawIncome = "case when ({$incomeMinutes}) <= 0 then 0 when employees.salary_type = 'hourly' then {$amount} * ({$hours}) else {$cappedMonthly} end";
         $dailyRate = "case when employees.salary_type = 'hourly' then {$amount} * 8 else {$amount} / 26.0 end";
         $rawDeductions = "({$unpaidDays}) * ({$dailyRate})";
         $zeroed = "{$worked} <= 0 and {$paidLeaveM} <= 0 and {$unpaidDays} > 0";
@@ -997,7 +994,6 @@ class PayrollService
         $workedMinutes = (int) ($summary?->payroll_worked_minutes ?? 0);
         $paidLeaveMinutes = (int) ($summary?->payroll_paid_leave_minutes ?? 0);
         $unpaidLeaveMinutes = (int) ($summary?->payroll_unpaid_leave_minutes ?? 0);
-        $assignmentMinutes = (int) ($summary?->payroll_assignment_minutes ?? 0);
         $leaveDays = (int) ($summary?->payroll_leave_days ?? 0);
         $paidLeaveDays = (int) ($summary?->payroll_paid_leave_days ?? 0);
         $unpaidDays = (int) ($summary?->payroll_unpaid_days ?? 0);
@@ -1020,11 +1016,8 @@ class PayrollService
             if ($employee->salary_type !== 'hourly') {
                 $incomeMinutes += $unpaidLeaveMinutes;
             }
-            if ($assignmentMinutes > 0) {
-                $incomeMinutes = $assignmentMinutes;
-            }
 
-            $income = $this->incomeFromHours($employee, $incomeMinutes, $leaveDays > 0);
+            $income = $this->incomeFromHours($employee, $incomeMinutes);
             $dailyRate = $this->dailyRate($employee);
             $deductions = $unpaidDays * $dailyRate;
 
@@ -1067,21 +1060,20 @@ class PayrollService
         ];
     }
 
-    protected function incomeFromHours(Employee $employee, int $minutes, bool $hasLeave = false): int
+    protected function incomeFromHours(Employee $employee, int $minutes): int
     {
         $hours = $minutes / 60;
         $amount = (float) $employee->salary_amount;
+
+        if ($minutes <= 0) {
+            return 0;
+        }
 
         if ($employee->salary_type === 'hourly') {
             return (int) round($amount * $hours);
         }
 
-        $monthly = $amount;
-        if ($minutes <= 0) {
-            return $hasLeave ? 0 : (int) round($monthly * 0.5);
-        }
-
-        return (int) round(min($monthly * 1.2, ($monthly / 176) * $hours));
+        return (int) round(min($amount * 1.2, ($amount / 176) * $hours));
     }
 
     protected function dailyRate(Employee $employee): int

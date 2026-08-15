@@ -7,6 +7,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import type { Shift } from "@/lib/shifts-api";
 import { formatDurationLong } from "@/lib/shifts-api";
 import { ShiftIcon } from "@/components/shifts/ShiftIcon";
@@ -128,8 +129,8 @@ export function ShiftDetailPanel({
         </dl>
 
         <div className="mt-5 space-y-2">
-          <button
-            type="button"
+          <Link
+            href={`/schedule?shift_id=${shift.id}`}
             className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5 text-sm hover:bg-slate-50"
           >
             <span className="flex items-center gap-2 text-slate-700">
@@ -140,9 +141,9 @@ export function ShiftDetailPanel({
               {shift.employee_count} nhân viên
               <ChevronRight className="h-4 w-4" />
             </span>
-          </button>
-          <button
-            type="button"
+          </Link>
+          <Link
+            href={`/schedule?shift_id=${shift.id}`}
             className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-3 py-2.5 text-sm hover:bg-slate-50"
           >
             <span className="flex items-center gap-2 text-slate-700">
@@ -153,7 +154,7 @@ export function ShiftDetailPanel({
               Xem lịch phân ca
               <ChevronRight className="h-4 w-4" />
             </span>
-          </button>
+          </Link>
         </div>
 
         <div className="mt-6 space-y-2">

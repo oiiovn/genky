@@ -234,13 +234,11 @@ class MonthlyWorkSummaryService
         }
 
         $assignmentMinutes = 0;
-        $assignmentDates = collect();
         foreach ($empAssignments as $assignment) {
             if (! $assignment->shift) {
                 continue;
             }
             $assignmentMinutes += $this->shiftMinutes($assignment->shift);
-            $assignmentDates->push($assignment->date?->toDateString());
             if (! isset($shiftMap[$assignment->shift->id])) {
                 $shiftMap[$assignment->shift->id] = $this->shiftBadge($assignment->shift);
             }
@@ -248,18 +246,11 @@ class MonthlyWorkSummaryService
 
         $leaveDays = $leaveLogs->count();
         $payrollTotal = $workedMinutes + $paidLeaveMinutes;
-        if ($workedLogs->isEmpty() && $leaveDays === 0 && $assignmentMinutes > 0) {
-            $payrollTotal = $assignmentMinutes;
-        }
-
-        if ($workedLogs->isNotEmpty()) {
-            $workDates = $workedLogs->map(fn (AttendanceLog $log) => $log->work_date?->toDateString())->filter()->unique();
-            $workMinutes = $workedMinutes;
-        } else {
-            $workDates = $assignmentDates->filter()->unique();
-            $workMinutes = $assignmentMinutes;
-        }
-
+        $workDates = $workedLogs
+            ->map(fn (AttendanceLog $log) => $log->work_date?->toDateString())
+            ->filter()
+            ->unique();
+        $workMinutes = $workedMinutes;
         $workDays = $workDates->count();
 
         return [

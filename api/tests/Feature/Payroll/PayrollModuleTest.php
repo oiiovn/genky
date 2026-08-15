@@ -12,6 +12,7 @@ use App\Services\Work\MonthlyWorkSummaryService;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class PayrollModuleTest extends TestCase
@@ -89,13 +90,41 @@ class PayrollModuleTest extends TestCase
 
         $this->app['auth']->forgetGuards();
 
+        $employee2 = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Trần Bình',
+            'email' => 'binh-pay@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+            'salary_type' => 'monthly',
+            'salary_amount' => 8000000,
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee2['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => now()->toDateString(),
+            'check_in_time' => '08:00',
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee2['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => now()->toDateString(),
+            'check_out_time' => '17:00',
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+
         $this->withToken($ctx['token'])
             ->postJson('/api/payrolls/generate', [
                 'year' => $year,
                 'month' => $month,
             ])
             ->assertOk()
-            ->assertJsonPath('data.total_employees', 1);
+            ->assertJsonPath('data.total_employees', 2);
 
         $this->app['auth']->forgetGuards();
 
@@ -176,18 +205,8 @@ class PayrollModuleTest extends TestCase
                 'content' => 'Ứng lương',
             ]);
 
-        // Already fully paid via mark-paid above; expect validation or create new employee case.
-        // Reset: create second employee and partial pay.
-        $this->app['auth']->forgetGuards();
-
-        $employee2 = $this->withToken($ctx['token'])->postJson('/api/employees', [
-            'full_name' => 'Trần Bình',
-            'email' => 'binh-pay@fresh.test',
-            'branch_ids' => [$ctx['branch_id']],
-            'salary_type' => 'monthly',
-            'salary_amount' => 8000000,
-        ])->assertCreated()->json('data');
-
+        // Already fully paid via mark-paid above. Partial-pay the second employee
+        // who still has pending net from actual attendance.
         $this->app['auth']->forgetGuards();
 
         $this->withToken($ctx['token'])
@@ -195,12 +214,12 @@ class PayrollModuleTest extends TestCase
                 'year' => $year,
                 'month' => $month,
                 'employee_id' => $employee2['id'],
-                'amount' => 500000,
+                'amount' => 100000,
                 'method' => 'bank',
                 'content' => 'Thanh toán một phần',
             ])
             ->assertOk()
-            ->assertJsonPath('data.entry.paid_amount', 500000);
+            ->assertJsonPath('data.entry.paid_amount', 100000);
 
         $this->app['auth']->forgetGuards();
 
@@ -229,7 +248,7 @@ class PayrollModuleTest extends TestCase
             ->getJson("/api/payrolls?year={$year}&month={$month}")
             ->assertOk();
 
-        $first = \App\Models\MonthlyWorkSummary::query()
+        $first = MonthlyWorkSummary::query()
             ->withoutGlobalScopes()
             ->where('year', $year)
             ->where('month', $month)
@@ -244,7 +263,7 @@ class PayrollModuleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('stats.employees', 1);
 
-        $second = \App\Models\MonthlyWorkSummary::query()
+        $second = MonthlyWorkSummary::query()
             ->withoutGlobalScopes()
             ->where('year', $year)
             ->where('month', $month)
@@ -284,7 +303,8 @@ class PayrollModuleTest extends TestCase
         $this->assertSame($list['stats']['fund'], $dashboard['stats']['fund']);
         $this->assertSame($list['stats']['income'], $dashboard['stats']['income']);
         $this->assertSame($list['summary']['pending'], $dashboard['summary']['pending']);
-        $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable('monthly_work_summaries'));
+        $this->assertSame(0, $list['stats']['income']);
+        $this->assertTrue(Schema::hasTable('monthly_work_summaries'));
     }
 
     public function test_list_paginates_on_sql_without_hydrating_all_rows(): void
@@ -382,7 +402,7 @@ class PayrollModuleTest extends TestCase
                 ->get()
                 ->keyBy('employee_id');
             $payload = app(EmployeeService::class);
-            $rows = $employees->map(function (Employee $employee) use ($summaries, $entries, $payload) {
+            $rows = $employees->map(function (Employee $employee) use ($entries, $payload) {
                 $employee->loadMissing(['position', 'role', 'branches']);
 
                 return [
