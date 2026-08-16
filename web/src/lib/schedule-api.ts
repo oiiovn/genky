@@ -10,6 +10,7 @@ export type ScheduleAssignment = {
     id: number;
     employee_code: string;
     full_name: string;
+    avatar?: string | null;
   } | null;
   shift: {
     id: number;

@@ -31,6 +31,7 @@ import {
   type StaffProfileResponse,
   type StaffProfileUpdate,
 } from "@/lib/staff-profile-api";
+import { employeeAvatarSrc } from "@/lib/avatar";
 
 const genderLabel: Record<string, string> = {
   male: "Nam",
@@ -259,10 +260,11 @@ export default function StaffProfilePage() {
     }
   }
 
-  const photo =
-    avatarSrc ||
-    emp?.avatar ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=38bdf8&color=0B1220`;
+  const photo = employeeAvatarSrc({
+    avatar: avatarSrc || emp?.avatar,
+    name: displayName,
+    code: displayCode,
+  });
 
   return (
     <div className="px-4 pt-4 pb-6">

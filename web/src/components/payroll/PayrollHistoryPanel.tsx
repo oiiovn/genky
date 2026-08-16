@@ -8,6 +8,7 @@ import {
   type PayrollPaymentGroup,
 } from "@/lib/payroll-api";
 import type { Branch } from "@/lib/api";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 const METHOD_LABEL: Record<string, string> = {
   cash: "Tiền mặt",
@@ -147,14 +148,13 @@ export function PayrollHistoryPanel({
                   ) : (
                     <ChevronRight className="h-4 w-4 text-slate-400" />
                   )}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={
-                      group.employee?.avatar ||
-                      `https://i.pravatar.cc/80?u=${encodeURIComponent(group.employee?.employee_code ?? String(group.employee_id))}`
+                  <EmployeeAvatar
+                    avatar={group.employee?.avatar}
+                    name={group.employee?.full_name}
+                    code={
+                      group.employee?.employee_code ?? String(group.employee_id)
                     }
-                    alt=""
-                    className="h-9 w-9 rounded-full object-cover"
+                    className="h-9 w-9 rounded-full"
                   />
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-slate-800">

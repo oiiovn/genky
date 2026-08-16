@@ -8,6 +8,7 @@ import {
   type AdjustmentRecord,
   type AdjustmentType,
 } from "@/lib/adjustments";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 export type AdjustmentTab =
   | "overview"
@@ -120,14 +121,11 @@ function RecordTable({
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={
-                          row.avatar ||
-                          `https://i.pravatar.cc/80?u=${encodeURIComponent(row.employee_code)}`
-                        }
-                        alt=""
-                        className="h-9 w-9 rounded-full object-cover"
+                      <EmployeeAvatar
+                        avatar={row.avatar}
+                        name={row.full_name}
+                        code={row.employee_code}
+                        className="h-9 w-9 rounded-full"
                       />
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-slate-800">

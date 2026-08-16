@@ -483,7 +483,7 @@ class EmployeeService
             'full_name' => $employee->full_name,
             'phone' => $employee->phone,
             'email' => $employee->email,
-            'avatar' => $employee->avatar,
+            'avatar' => $employee->resolvedAvatarUrl(),
             'gender' => $employee->gender,
             'date_of_birth' => $employee->date_of_birth?->toDateString(),
             'address' => $employee->address,

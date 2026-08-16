@@ -324,7 +324,7 @@ class LeaveService
             'employee_id' => $leave->employee_id,
             'employee_code' => $employee?->employee_code,
             'full_name' => $employee?->full_name,
-            'avatar' => $employee?->avatar,
+            'avatar' => $employee?->resolvedAvatarUrl(),
             'position' => $employee?->position?->name,
             'type' => $leave->type,
             'type_label' => LeaveRequest::TYPE_LABELS[$leave->type] ?? $leave->type,

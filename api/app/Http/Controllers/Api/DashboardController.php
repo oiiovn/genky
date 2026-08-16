@@ -244,7 +244,7 @@ class DashboardController extends Controller
                     'name' => $row['full_name'],
                     'role' => $row['position'] ?? '—',
                     'avatar' => $row['avatar']
-                        ?: 'https://i.pravatar.cc/80?u='.urlencode((string) $row['employee_code']),
+                        ?: null,
                     'shift' => $row['shift_time'] ?? '—',
                     'check_in' => $row['check_in'],
                     'status' => $status,

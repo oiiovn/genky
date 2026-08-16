@@ -23,6 +23,7 @@ import {
   type LogResult,
   type SystemLog,
 } from "@/lib/activity-api";
+import { employeeAvatarSrc, resolveMediaUrl } from "@/lib/avatar";
 
 const ACTION_STYLE: Record<string, { badge: string; label: string }> = {
   create: { badge: "bg-emerald-50 text-emerald-600", label: "Tạo mới" },
@@ -66,8 +67,10 @@ function pageItems(current: number, last: number): Array<number | "…"> {
 }
 
 function avatarOf(row: SystemLog): string {
-  if (row.avatar) return row.avatar;
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(row.user_name || "?")}&background=eef2ff&color=4338ca`;
+  return employeeAvatarSrc({
+    avatar: resolveMediaUrl(row.avatar) ?? row.avatar,
+    name: row.user_name,
+  });
 }
 
 const selectClass =

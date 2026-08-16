@@ -11,6 +11,7 @@ import {
   statusTone,
 } from "@/lib/attendance-api";
 import { AttendanceRowActions } from "@/components/attendance/AttendanceRowActions";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 export function AttendanceTable({
   rows,
@@ -168,14 +169,11 @@ export function AttendanceTable({
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={
-                          row.avatar ||
-                          `https://i.pravatar.cc/80?u=${encodeURIComponent(row.employee_code)}`
-                        }
-                        alt=""
-                        className="h-9 w-9 rounded-full object-cover"
+                      <EmployeeAvatar
+                        avatar={row.avatar}
+                        name={row.full_name}
+                        code={row.employee_code}
+                        className="h-9 w-9 rounded-full"
                       />
                       <div>
                         <p className="font-semibold text-slate-800">

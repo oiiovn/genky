@@ -114,9 +114,12 @@ class User extends Authenticatable
             return null;
         }
 
-        $base = request()?->getSchemeAndHttpHost()
-            ?: rtrim((string) config('app.url'), '/');
+        $base = rtrim((string) config('app.url'), '/');
+        if ($base === '' || str_contains($base, 'localhost') || str_contains($base, '127.0.0.1')) {
+            $base = request()?->getSchemeAndHttpHost()
+                ?: $base;
+        }
 
-        return $base.'/storage/'.$this->avatar_path;
+        return rtrim((string) $base, '/').'/storage/'.$this->avatar_path;
     }
 }

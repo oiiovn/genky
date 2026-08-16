@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { MoreHorizontal } from "lucide-react";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 import type { AttendanceRow } from "@/types/dashboard";
 
 const statusStyle = {
@@ -55,11 +56,10 @@ export function AttendanceTable({ rows }: { rows: AttendanceRow[] }) {
               >
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={row.avatar}
-                      alt=""
-                      className="h-9 w-9 rounded-full object-cover"
+                    <EmployeeAvatar
+                      avatar={row.avatar}
+                      name={row.name}
+                      className="h-9 w-9 rounded-full"
                     />
                     <div>
                       <p className="font-medium text-slate-800">{row.name}</p>

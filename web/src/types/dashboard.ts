@@ -10,7 +10,7 @@ export type AttendanceRow = {
   id: number;
   name: string;
   role: string;
-  avatar: string;
+  avatar: string | null;
   shift: string;
   check_in: string | null;
   status: "on_time" | "late" | "pending" | "on_leave";

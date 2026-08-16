@@ -2,6 +2,7 @@
 
 import { Pencil, X } from "lucide-react";
 import type { Employee } from "@/lib/employees-api";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 const statusLabel: Record<string, string> = {
   active: "Đang làm việc",
@@ -41,14 +42,11 @@ export function EmployeeViewModal({
       <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={
-                employee.avatar ||
-                `https://i.pravatar.cc/80?u=${encodeURIComponent(employee.employee_code)}`
-              }
-              alt=""
-              className="h-12 w-12 rounded-full object-cover"
+            <EmployeeAvatar
+              avatar={employee.avatar}
+              name={employee.full_name}
+              code={employee.employee_code}
+              className="h-12 w-12 rounded-full"
             />
             <div>
               <h3 className="text-lg font-semibold text-slate-800">

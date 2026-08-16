@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import type { Employee } from "@/lib/employees-api";
 import type { UnderstaffedSlot } from "@/lib/schedule-alerts";
 import { formatDisplayDate, shiftChipStyle } from "@/lib/schedule-utils";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 export type ScheduleAlertKind = "unscheduled" | "understaffed";
 
@@ -105,14 +106,11 @@ export function ScheduleAlertDetailPanel({
                     onClick={() => onSelectEmployee(employee.id)}
                     className="flex w-full items-center gap-3 rounded-xl border border-slate-100 px-3 py-2.5 text-left hover:bg-slate-50"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={
-                        employee.avatar ||
-                        `https://i.pravatar.cc/80?u=${encodeURIComponent(employee.employee_code)}`
-                      }
-                      alt=""
-                      className="h-9 w-9 rounded-full object-cover"
+                    <EmployeeAvatar
+                      avatar={employee.avatar}
+                      name={employee.full_name}
+                      code={employee.employee_code}
+                      className="h-9 w-9 rounded-full"
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-slate-800">

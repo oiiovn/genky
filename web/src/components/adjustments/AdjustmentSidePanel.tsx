@@ -7,6 +7,7 @@ import {
   categoryBreakdown,
   topEmployees,
 } from "@/lib/adjustments";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 export function AdjustmentSidePanel({
   records,
@@ -108,14 +109,11 @@ function TopList({
               <span className="w-4 text-xs font-bold text-slate-400">
                 {i + 1}
               </span>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={
-                  r.avatar ||
-                  `https://i.pravatar.cc/80?u=${encodeURIComponent(String(r.employee_id))}`
-                }
-                alt=""
-                className="h-9 w-9 rounded-full object-cover"
+              <EmployeeAvatar
+                avatar={r.avatar}
+                name={r.full_name}
+                code={String(r.employee_id)}
+                className="h-9 w-9 rounded-full"
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-slate-800">

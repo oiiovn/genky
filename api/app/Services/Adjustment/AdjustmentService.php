@@ -116,7 +116,7 @@ class AdjustmentService
             'employee_id' => $row->employee_id,
             'employee_code' => $employee?->employee_code,
             'full_name' => $employee?->full_name,
-            'avatar' => $employee?->avatar,
+            'avatar' => $employee?->resolvedAvatarUrl(),
             'department' => $employee?->position?->name ?? '—',
             'type' => $row->type,
             'category' => $row->category,

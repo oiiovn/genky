@@ -3,6 +3,7 @@
 import Link from "next/link";
 import clsx from "clsx";
 import type { QrHistoryRow } from "@/lib/attendance-qr-api";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 const STEPS = [
   "Mở ứng dụng Freshh trên điện thoại",
@@ -65,14 +66,11 @@ export function QrSideInfo({
           <ul className="space-y-3">
             {history.map((row) => (
               <li key={row.id} className="flex items-start gap-2.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={
-                    row.avatar ||
-                    `https://i.pravatar.cc/80?u=${encodeURIComponent(String(row.employee_id))}`
-                  }
-                  alt=""
-                  className="h-9 w-9 rounded-full object-cover"
+                <EmployeeAvatar
+                  avatar={row.avatar}
+                  name={row.full_name}
+                  code={String(row.employee_id)}
+                  className="h-9 w-9 rounded-full"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">

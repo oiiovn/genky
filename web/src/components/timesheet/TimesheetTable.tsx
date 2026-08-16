@@ -11,6 +11,7 @@ import {
   type TimesheetRow,
   type TimesheetStatus,
 } from "@/lib/timesheet";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 export type TimesheetTab =
   | "all"
@@ -266,14 +267,11 @@ export function TimesheetTable({
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2.5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={
-                            row.employee.avatar ||
-                            `https://i.pravatar.cc/80?u=${encodeURIComponent(row.employee.employee_code)}`
-                          }
-                          alt=""
-                          className="h-9 w-9 rounded-full object-cover"
+                        <EmployeeAvatar
+                          avatar={row.employee.avatar}
+                          name={row.employee.full_name}
+                          code={row.employee.employee_code}
+                          className="h-9 w-9 rounded-full"
                         />
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-slate-800">

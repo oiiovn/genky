@@ -90,4 +90,28 @@ class Employee extends Model
         return $this->branches()->wherePivot('is_primary', true)->first()
             ?? $this->branches()->first();
     }
+
+    public function resolvedAvatarUrl(): ?string
+    {
+        $raw = trim((string) ($this->avatar ?? ''));
+        if ($raw !== '') {
+            if (str_starts_with($raw, 'http://') || str_starts_with($raw, 'https://')) {
+                return $raw;
+            }
+
+            $base = rtrim((string) config('app.url'), '/');
+            if (str_starts_with($raw, '/storage/')) {
+                return $base.$raw;
+            }
+            if (str_starts_with($raw, 'storage/')) {
+                return $base.'/'.$raw;
+            }
+
+            return $base.'/storage/'.ltrim($raw, '/');
+        }
+
+        $this->loadMissing('user');
+
+        return $this->user?->avatarUrl();
+    }
 }

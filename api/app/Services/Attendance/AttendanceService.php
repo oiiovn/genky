@@ -742,7 +742,7 @@ class AttendanceService
             'employee_id' => $employee->id,
             'employee_code' => $employee->employee_code,
             'full_name' => $employee->full_name,
-            'avatar' => $employee->avatar,
+            'avatar' => $employee->resolvedAvatarUrl(),
             'position' => $employee->position?->name ?? '—',
             'branch_id' => $resolvedBranchId,
             'branch_name' => $branchName,

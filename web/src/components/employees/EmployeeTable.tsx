@@ -13,6 +13,7 @@ import {
   BadgeCheck,
 } from "lucide-react";
 import type { Employee } from "@/lib/employees-api";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 
 const positionTone: Record<string, string> = {
   "Quản lý": "bg-violet-50 text-violet-600",
@@ -174,14 +175,11 @@ export function EmployeeTable({
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={
-                            row.avatar ||
-                            `https://i.pravatar.cc/80?u=${encodeURIComponent(row.employee_code)}`
-                          }
-                          alt=""
-                          className="h-9 w-9 rounded-full object-cover"
+                        <EmployeeAvatar
+                          avatar={row.avatar}
+                          name={row.full_name}
+                          code={row.employee_code}
+                          className="h-9 w-9 rounded-full"
                         />
                         <div>
                           <p className="font-semibold text-slate-800">

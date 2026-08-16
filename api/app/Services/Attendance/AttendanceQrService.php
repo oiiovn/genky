@@ -322,7 +322,7 @@ class AttendanceQrService
             'id' => $log->id.'-'.$action,
             'employee_id' => $log->employee_id,
             'full_name' => $log->employee?->full_name ?? '—',
-            'avatar' => $log->employee?->avatar,
+            'avatar' => $log->employee?->resolvedAvatarUrl(),
             'position' => $log->employee?->position?->name,
             'shift_label' => $shiftLabel,
             'action' => $action,

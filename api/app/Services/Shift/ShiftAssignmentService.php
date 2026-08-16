@@ -159,6 +159,7 @@ class ShiftAssignmentService
                 'id' => $assignment->employee->id,
                 'employee_code' => $assignment->employee->employee_code,
                 'full_name' => $assignment->employee->full_name,
+                'avatar' => $assignment->employee->resolvedAvatarUrl(),
             ] : null,
             'shift' => $assignment->shift ? [
                 'id' => $assignment->shift->id,

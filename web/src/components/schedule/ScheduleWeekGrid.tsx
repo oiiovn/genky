@@ -4,6 +4,7 @@ import clsx from "clsx";
 import type { ScheduleAssignment } from "@/lib/schedule-api";
 import type { Employee } from "@/lib/employees-api";
 import type { Shift } from "@/lib/shifts-api";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 import {
   TARGET_WEEK_MINUTES,
   formatHoursShort,
@@ -160,14 +161,11 @@ export function ScheduleWeekGrid({
                   >
                     <td className="sticky left-0 z-10 bg-white px-4 py-3">
                       <div className="flex items-center gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={
-                            row.employee.avatar ||
-                            `https://i.pravatar.cc/80?u=${encodeURIComponent(row.employee.employee_code)}`
-                          }
-                          alt=""
-                          className="h-10 w-10 rounded-full object-cover"
+                        <EmployeeAvatar
+                          avatar={row.employee.avatar}
+                          name={row.employee.full_name}
+                          code={row.employee.employee_code}
+                          className="h-10 w-10 rounded-full"
                         />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-slate-800">
