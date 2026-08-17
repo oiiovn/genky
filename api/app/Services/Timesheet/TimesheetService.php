@@ -290,7 +290,7 @@ class TimesheetService
             ->selectRaw('coalesce(sum(mws.ot_minutes), 0) as ot_minutes')
             ->selectRaw('avg(coalesce(mws.work_days, 0)) as avg_work_days')
             ->selectRaw(
-                'coalesce(sum(case when employees.salary_type = ? then employees.salary_amount * coalesce(mws.work_minutes, 0) / 60.0 else (employees.salary_amount / 176.0) * coalesce(mws.work_minutes, 0) / 60.0 end), 0) as estimated_cost',
+                'coalesce(sum(case when employees.salary_type = ? then employees.salary_amount * coalesce(mws.payroll_worked_minutes, mws.work_minutes, 0) / 60.0 else (employees.salary_amount / 176.0) * coalesce(mws.payroll_worked_minutes, mws.work_minutes, 0) / 60.0 end), 0) as estimated_cost',
                 ['hourly']
             )
             ->first();

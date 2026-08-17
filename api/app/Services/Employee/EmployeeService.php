@@ -120,6 +120,7 @@ class EmployeeService
                 'employment_type' => $data['employment_type'] ?? 'full_time',
                 'salary_type' => $data['salary_type'] ?? 'hourly',
                 'salary_amount' => $data['salary_amount'] ?? 0,
+                'pay_from_shift_start' => filter_var($data['pay_from_shift_start'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'joined_at' => $data['joined_at'] ?? now()->toDateString(),
                 'status' => $data['status'] ?? Employee::STATUS_ACTIVE,
             ]);
@@ -147,6 +148,13 @@ class EmployeeService
                 $this->assertRoleExists((int) $data['role_id']);
             }
 
+            if (array_key_exists('pay_from_shift_start', $data)) {
+                $data['pay_from_shift_start'] = filter_var(
+                    $data['pay_from_shift_start'],
+                    FILTER_VALIDATE_BOOLEAN,
+                );
+            }
+
             $employee->fill(collect($data)->only([
                 'full_name',
                 'phone',
@@ -161,6 +169,7 @@ class EmployeeService
                 'employment_type',
                 'salary_type',
                 'salary_amount',
+                'pay_from_shift_start',
                 'joined_at',
                 'resigned_at',
                 'status',
@@ -502,6 +511,7 @@ class EmployeeService
             'employment_type' => $employee->employment_type,
             'salary_type' => $employee->salary_type,
             'salary_amount' => $employee->salary_amount,
+            'pay_from_shift_start' => (bool) $employee->pay_from_shift_start,
             'joined_at' => $employee->joined_at?->toDateString(),
             'resigned_at' => $employee->resigned_at?->toDateString(),
             'status' => $employee->status,

@@ -495,4 +495,65 @@ class AttendanceModuleTest extends TestCase
             'longitude' => 106.7009,
         ])->assertStatus(422);
     }
+
+    public function test_list_includes_daily_wage_from_worked_minutes(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $date = now()->toDateString();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Nguyễn Văn An',
+            'email' => 'an-wage@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+            'salary_type' => 'hourly',
+            'salary_amount' => 25000,
+            'pay_from_shift_start' => true,
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $shift = $this->withToken($ctx['token'])->postJson('/api/shifts', [
+            'name' => 'Ca chiều',
+            'code' => 'WAGE12',
+            'start_time' => '12:00',
+            'end_time' => '22:00',
+            'break_time' => 0,
+            'color' => '#F59E0B',
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'shift_id' => $shift['id'],
+            'work_date' => $date,
+            'check_in_time' => '11:27',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $out = $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $date,
+            'check_out_time' => '22:12',
+        ])->assertOk()->json('data');
+
+        $wage = (int) round((25000 * 612) / 60);
+        $this->assertSame($wage, $out['daily_wage']);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.$date)
+            ->assertOk()
+            ->assertJsonPath('data.0.daily_wage', $wage);
+
+        $this->app['auth']->forgetGuards();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $this->withToken($ctx['token'])
+            ->getJson("/api/payrolls?year={$year}&month={$month}")
+            ->assertOk()
+            ->assertJsonPath('data.0.income', $wage)
+            ->assertJsonPath('data.0.total_minutes', 612);
+    }
 }

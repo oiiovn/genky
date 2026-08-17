@@ -9,6 +9,7 @@ import type {
 import {
   statusLabel,
   statusTone,
+  formatDailyWage,
 } from "@/lib/attendance-api";
 import { AttendanceRowActions } from "@/components/attendance/AttendanceRowActions";
 import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
@@ -134,7 +135,7 @@ export function AttendanceTable({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-left text-sm">
+        <table className="w-full min-w-[1180px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-xs tracking-wide text-slate-400 uppercase">
               <th className="px-4 py-3 font-medium">Nhân viên</th>
@@ -143,6 +144,7 @@ export function AttendanceTable({
               <th className="px-3 py-3 font-medium">Check-in</th>
               <th className="px-3 py-3 font-medium">Check-out</th>
               <th className="px-3 py-3 font-medium">Tổng giờ</th>
+              <th className="px-3 py-3 font-medium">Tiền công</th>
               <th className="px-3 py-3 font-medium">Trạng thái</th>
               <th className="px-3 py-3 font-medium">Chi nhánh</th>
               <th className="px-3 py-3 font-medium">Thao tác</th>
@@ -151,13 +153,13 @@ export function AttendanceTable({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-slate-400">
+                <td colSpan={10} className="px-5 py-12 text-center text-slate-400">
                   Đang tải...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-slate-400">
+                <td colSpan={10} className="px-5 py-12 text-center text-slate-400">
                   Không có dữ liệu chấm công.
                 </td>
               </tr>
@@ -206,6 +208,9 @@ export function AttendanceTable({
                   </td>
                   <td className="px-3 py-3 font-medium text-slate-700">
                     {row.total_hours ?? "—"}
+                  </td>
+                  <td className="px-3 py-3 font-semibold text-slate-800">
+                    {formatDailyWage(row.daily_wage)}
                   </td>
                   <td className="px-3 py-3">
                     <span

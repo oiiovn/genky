@@ -285,8 +285,7 @@ export function AddMarketingReviewModal({
           <div className="mt-4 space-y-3">
             {!meta?.campaign ? (
               <p className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                Chưa có chiến dịch active. Hãy kích hoạt campaign trước khi thêm
-                đánh giá.
+                Đang tạo chiến dịch mặc định. Thử đóng rồi mở lại nếu vẫn thấy dòng này.
               </p>
             ) : (
               <p className="text-xs text-slate-500">

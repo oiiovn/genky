@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\MonthlyWorkSummary;
 use App\Models\Shift;
 use App\Models\ShiftAssignment;
+use App\Support\DailyWage;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -85,7 +86,10 @@ class MonthlyWorkSummaryService
             Employee::query()->max('updated_at'),
         ])->filter()->max();
 
-        if ($computedAt && (! $sourceAt || Carbon::parse((string) $computedAt)->gte(Carbon::parse((string) $sourceAt)))) {
+        $logicSince = Carbon::parse('2026-08-17 13:50:00');
+        $logicStale = ! $computedAt || Carbon::parse((string) $computedAt)->lt($logicSince);
+
+        if (! $logicStale && $computedAt && (! $sourceAt || Carbon::parse((string) $computedAt)->gte(Carbon::parse((string) $sourceAt)))) {
             return;
         }
 
@@ -159,12 +163,17 @@ class MonthlyWorkSummaryService
             ->unique()
             ->values();
 
+        $payFromShift = Employee::query()
+            ->whereIn('id', $employeeIds)
+            ->pluck('pay_from_shift_start', 'id');
+
         $rows = collect();
         foreach ($employeeIds as $employeeId) {
             $empLogs = $logsByEmployee->get($employeeId, collect())->values();
             $empAssignments = $assignmentsByEmployee->get($employeeId, collect())->values();
+            $fromShift = (bool) $payFromShift->get($employeeId, false);
 
-            $rows->push($this->aggregate((int) $employeeId, $year, $month, 0, $empLogs, $empAssignments));
+            $rows->push($this->aggregate((int) $employeeId, $year, $month, 0, $empLogs, $empAssignments, $fromShift));
 
             $branchIds = $empLogs->pluck('branch_id')
                 ->merge($empAssignments->pluck('branch_id'))
@@ -179,6 +188,7 @@ class MonthlyWorkSummaryService
                     (int) $branchId,
                     $empLogs->where('branch_id', $branchId)->values(),
                     $empAssignments->where('branch_id', $branchId)->values(),
+                    $fromShift,
                 ));
             }
         }
@@ -198,6 +208,7 @@ class MonthlyWorkSummaryService
         int $branchId,
         Collection $empLogs,
         Collection $empAssignments,
+        bool $payFromShiftStart = false,
     ): array {
         $leaveLogs = $empLogs->filter(fn (AttendanceLog $log) => $log->isLeave());
         $paidLeaveLogs = $leaveLogs->filter(fn (AttendanceLog $log) => $log->isPaidLeave());
@@ -215,9 +226,12 @@ class MonthlyWorkSummaryService
         });
 
         $workedMinutes = 0;
+        $payableMinutes = 0;
         $shiftMap = [];
         foreach ($workedLogs as $log) {
-            $workedMinutes += $this->logMinutes($log);
+            $actual = $this->logMinutes($log);
+            $workedMinutes += $actual;
+            $payableMinutes += $this->payableMinutes($log, $empAssignments, $payFromShiftStart, $actual);
             if ($log->shift) {
                 $shiftMap[$log->shift->id] = $this->shiftBadge($log->shift);
             }
@@ -245,8 +259,7 @@ class MonthlyWorkSummaryService
         }
 
         $leaveDays = $leaveLogs->count();
-        // Payroll "total" = actual worked only; leave minutes stay in dedicated columns.
-        $payrollTotal = $workedMinutes;
+        $payrollTotal = $payableMinutes;
         $workDates = $workedLogs
             ->map(fn (AttendanceLog $log) => $log->work_date?->toDateString())
             ->filter()
@@ -267,7 +280,7 @@ class MonthlyWorkSummaryService
             'payroll_leave_days' => $leaveDays,
             'payroll_paid_leave_days' => $paidLeaveLogs->count(),
             'payroll_unpaid_days' => $unpaidLeaveLogs->count(),
-            'payroll_worked_minutes' => $workedMinutes,
+            'payroll_worked_minutes' => $payableMinutes,
             'payroll_paid_leave_minutes' => $paidLeaveMinutes,
             'payroll_unpaid_leave_minutes' => $unpaidLeaveMinutes,
             'payroll_assignment_minutes' => $workedLogs->isEmpty() && $leaveDays === 0 ? $assignmentMinutes : 0,
@@ -297,6 +310,30 @@ class MonthlyWorkSummaryService
         }
 
         return (int) ($mins ?? 0);
+    }
+
+    /**
+     * @param  Collection<int, ShiftAssignment>  $assignments
+     */
+    protected function payableMinutes(
+        AttendanceLog $log,
+        Collection $assignments,
+        bool $payFromShiftStart,
+        int $actual,
+    ): int {
+        $shift = $log->shift;
+        if (! $shift) {
+            $date = $log->work_date?->toDateString();
+            $shift = $assignments->first(
+                fn (ShiftAssignment $a) => $a->date?->toDateString() === $date && $a->shift
+            )?->shift;
+        }
+
+        if (! $payFromShiftStart || ! $shift) {
+            return $actual;
+        }
+
+        return DailyWage::payableMinutes($log, $shift, true);
     }
 
     /**

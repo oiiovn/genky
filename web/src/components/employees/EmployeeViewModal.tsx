@@ -96,6 +96,10 @@ export function EmployeeViewModal({
           />
           <Field label="Lương" value={salary} />
           <Field
+            label="Tính lương theo ca"
+            value={employee.pay_from_shift_start ? "Bật" : "Tắt"}
+          />
+          <Field
             label="Ngày vào làm"
             value={
               employee.joined_at

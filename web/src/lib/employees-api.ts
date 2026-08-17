@@ -35,6 +35,7 @@ export type Employee = {
   employment_type: string;
   salary_type: string;
   salary_amount: number;
+  pay_from_shift_start?: boolean;
   joined_at: string | null;
   resigned_at: string | null;
   status: "active" | "inactive" | "resigned" | string;
@@ -157,6 +158,7 @@ export async function createEmployee(payload: {
   employment_type?: string;
   salary_type?: string;
   salary_amount?: number;
+  pay_from_shift_start?: boolean;
   joined_at?: string;
 }): Promise<Employee> {
   const res = await fetch(`${apiUrl()}/employees`, {

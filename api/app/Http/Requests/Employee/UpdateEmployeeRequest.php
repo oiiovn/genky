@@ -29,6 +29,7 @@ class UpdateEmployeeRequest extends FormRequest
             'employment_type' => ['nullable', Rule::in(['full_time', 'part_time', 'collaborator', 'intern'])],
             'salary_type' => ['nullable', Rule::in(['hourly', 'monthly', 'shift'])],
             'salary_amount' => ['nullable', 'integer', 'min:0'],
+            'pay_from_shift_start' => ['nullable', 'boolean'],
             'joined_at' => ['nullable', 'date'],
             'resigned_at' => ['nullable', 'date'],
             'status' => ['nullable', Rule::in(['active', 'inactive', 'resigned'])],

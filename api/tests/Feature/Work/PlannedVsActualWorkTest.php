@@ -52,7 +52,14 @@ class PlannedVsActualWorkTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    protected function createEmployee(string $token, int $branchId, string $email, string $salaryType = 'monthly', int $salary = 10000000): array
+    protected function createEmployee(
+        string $token,
+        int $branchId,
+        string $email,
+        string $salaryType = 'monthly',
+        int $salary = 10000000,
+        bool $payFromShiftStart = false,
+    ): array
     {
         $employee = $this->withToken($token)->postJson('/api/employees', [
             'full_name' => 'Nhân viên PVA',
@@ -60,6 +67,7 @@ class PlannedVsActualWorkTest extends TestCase
             'branch_ids' => [$branchId],
             'salary_type' => $salaryType,
             'salary_amount' => $salary,
+            'pay_from_shift_start' => $payFromShiftStart,
         ])->assertCreated()->json('data');
         $this->app['auth']->forgetGuards();
 
@@ -529,5 +537,120 @@ class PlannedVsActualWorkTest extends TestCase
         $ts = $this->timesheetRow($ctx['token'], $employee['id'], $year, $month);
         $this->assertSame(600, $ts['work_minutes']);
         $this->assertSame(120, $ts['ot_minutes']);
+    }
+
+    public function test_pay_from_shift_start_ignores_early_check_in_minutes(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $date = now()->toDateString();
+
+        $employee = $this->createEmployee(
+            $ctx['token'],
+            $ctx['branch_id'],
+            'pva-shiftpay-on@fresh.test',
+            'hourly',
+            25000,
+            true,
+        );
+        $shift = $this->withToken($ctx['token'])->postJson('/api/shifts', [
+            'name' => 'Ca chiều',
+            'code' => 'C12',
+            'start_time' => '12:00',
+            'end_time' => '22:00',
+            'break_time' => 0,
+            'color' => '#F59E0B',
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->assignShift($ctx['token'], $employee['id'], $shift['id'], $ctx['branch_id'], $date);
+        $this->checkInOut($ctx['token'], $employee['id'], $ctx['branch_id'], $date, '11:27', '22:12');
+
+        $ts = $this->timesheetRow($ctx['token'], $employee['id'], $year, $month);
+        $this->assertSame(645, $ts['work_minutes']);
+
+        $summary = $this->summary($employee['id'], $year, $month);
+        $this->assertSame(645, $summary->work_minutes);
+        $this->assertSame(612, $summary->payroll_worked_minutes);
+
+        $pay = $this->payrollRow($ctx['token'], $employee['id'], $year, $month);
+        $this->assertSame((int) round((25000 * 612) / 60), $pay['row']['income']);
+    }
+
+    public function test_pay_from_shift_start_off_counts_early_minutes(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $date = now()->toDateString();
+
+        $employee = $this->createEmployee(
+            $ctx['token'],
+            $ctx['branch_id'],
+            'pva-shiftpay-off@fresh.test',
+            'hourly',
+            25000,
+        );
+        $shift = $this->createEightHourShift($ctx['token'], $ctx['branch_id'], 'C8OFF');
+        $this->assignShift($ctx['token'], $employee['id'], $shift['id'], $ctx['branch_id'], $date);
+        $this->checkInOut($ctx['token'], $employee['id'], $ctx['branch_id'], $date, '07:30', '16:00');
+
+        $this->timesheetRow($ctx['token'], $employee['id'], $year, $month);
+        $summary = $this->summary($employee['id'], $year, $month);
+        $this->assertSame(510, $summary->work_minutes);
+        $this->assertSame(510, $summary->payroll_worked_minutes);
+
+        $pay = $this->payrollRow($ctx['token'], $employee['id'], $year, $month);
+        $this->assertSame((int) round((25000 * 510) / 60), $pay['row']['income']);
+    }
+
+    public function test_pay_from_shift_start_does_not_clip_late_checkout(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $date = now()->toDateString();
+
+        $employee = $this->createEmployee(
+            $ctx['token'],
+            $ctx['branch_id'],
+            'pva-shiftpay-ot@fresh.test',
+            'hourly',
+            25000,
+            true,
+        );
+        $shift = $this->createEightHourShift($ctx['token'], $ctx['branch_id'], 'C8OT');
+        $this->assignShift($ctx['token'], $employee['id'], $shift['id'], $ctx['branch_id'], $date);
+        $this->checkInOut($ctx['token'], $employee['id'], $ctx['branch_id'], $date, '08:00', '18:00');
+
+        $this->timesheetRow($ctx['token'], $employee['id'], $year, $month);
+        $summary = $this->summary($employee['id'], $year, $month);
+        $this->assertSame(600, $summary->work_minutes);
+        $this->assertSame(600, $summary->payroll_worked_minutes);
+    }
+
+    public function test_pay_from_shift_start_without_shift_counts_actual_minutes(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $date = now()->toDateString();
+
+        $employee = $this->createEmployee(
+            $ctx['token'],
+            $ctx['branch_id'],
+            'pva-shiftpay-noshift@fresh.test',
+            'hourly',
+            25000,
+            true,
+        );
+        $this->checkInOut($ctx['token'], $employee['id'], $ctx['branch_id'], $date, '07:30', '16:00');
+
+        $this->timesheetRow($ctx['token'], $employee['id'], $year, $month);
+        $summary = $this->summary($employee['id'], $year, $month);
+        $this->assertSame(510, $summary->work_minutes);
+        $this->assertSame(510, $summary->payroll_worked_minutes);
     }
 }

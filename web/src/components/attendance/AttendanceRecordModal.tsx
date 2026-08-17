@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import {
   statusLabel,
   updateAttendance,
+  formatDailyWage,
   type AttendanceRow,
 } from "@/lib/attendance-api";
 import type { Shift } from "@/lib/shifts-api";
@@ -152,6 +153,7 @@ export function AttendanceRecordModal({
               />
               <Field label="Ca làm" value={`${row.shift_name} (${row.shift_time})`} />
               <Field label="Tổng giờ" value={row.total_hours} />
+              <Field label="Tiền công" value={formatDailyWage(row.daily_wage)} />
               <Field label="Check-in" value={row.check_in} />
               <Field label="Check-out" value={row.check_out} />
               <Field label="Vị trí" value={row.location} />

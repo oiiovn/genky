@@ -29,6 +29,7 @@ export type AttendanceRow = {
   check_out_tone: CheckLabelTone;
   total_minutes: number | null;
   total_hours: string | null;
+  daily_wage?: number | null;
   status: string | null;
   ui_status: AttendanceUiStatus;
   leave_type?: string | null;
@@ -106,6 +107,11 @@ export const statusTone: Record<AttendanceUiStatus, string> = {
   on_leave: "bg-violet-50 text-violet-600",
   absent: "bg-slate-100 text-slate-600",
 };
+
+export function formatDailyWage(amount: number | null | undefined): string {
+  if (amount == null) return "—";
+  return `${Math.round(amount).toLocaleString("vi-VN")}đ`;
+}
 
 export const checkToneClass: Record<CheckLabelTone, string> = {
   early: "text-emerald-600",

@@ -34,6 +34,7 @@ class Employee extends Model
         'employment_type',
         'salary_type',
         'salary_amount',
+        'pay_from_shift_start',
         'joined_at',
         'resigned_at',
         'status',
@@ -46,6 +47,7 @@ class Employee extends Model
             'joined_at' => 'date',
             'resigned_at' => 'date',
             'salary_amount' => 'integer',
+            'pay_from_shift_start' => 'boolean',
         ];
     }
 

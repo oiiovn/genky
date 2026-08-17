@@ -533,4 +533,107 @@ class PayrollModuleTest extends TestCase
 
         return round($bytes / 1024).'KB';
     }
+
+    public function test_hourly_income_is_minutes_times_rate_per_minute(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Lương Giờ',
+            'email' => 'hourly-pay@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+            'salary_type' => 'hourly',
+            'salary_amount' => 25000,
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => now()->toDateString(),
+            'check_in_time' => '08:00',
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+        $this->travel(61)->minutes();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => now()->toDateString(),
+            'check_out_time' => '09:01',
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->postJson('/api/payrolls/generate', [
+                'year' => $year,
+                'month' => $month,
+            ])
+            ->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $list = $this->withToken($ctx['token'])
+            ->getJson("/api/payrolls?year={$year}&month={$month}")
+            ->assertOk()
+            ->json();
+
+        $row = collect($list['data'])->firstWhere('id', $employee['id']);
+        $this->assertNotNull($row);
+        $this->assertSame(61, (int) $row['total_minutes']);
+        $this->assertSame((int) round((25000 * 61) / 60), (int) $row['income']);
+    }
+
+    public function test_hourly_income_does_not_apply_overtime_multiplier(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Không OT',
+            'email' => 'no-ot-pay@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+            'salary_type' => 'hourly',
+            'salary_amount' => 25000,
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => now()->toDateString(),
+            'check_in_time' => '08:00',
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+        $this->travel(10)->hours();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => now()->toDateString(),
+            'check_out_time' => '18:00',
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])
+            ->postJson('/api/payrolls/generate', [
+                'year' => $year,
+                'month' => $month,
+            ])
+            ->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $list = $this->withToken($ctx['token'])
+            ->getJson("/api/payrolls?year={$year}&month={$month}")
+            ->assertOk()
+            ->json();
+
+        $row = collect($list['data'])->firstWhere('id', $employee['id']);
+        $this->assertNotNull($row);
+        $this->assertSame(600, (int) $row['total_minutes']);
+        $this->assertSame(250000, (int) $row['income']);
+        $this->assertNotSame(275000, (int) $row['income']);
+    }
 }

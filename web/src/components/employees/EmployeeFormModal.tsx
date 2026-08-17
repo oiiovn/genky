@@ -28,6 +28,7 @@ export function EmployeeFormModal({
   const [branchId, setBranchId] = useState<number | "">("");
   const [status, setStatus] = useState("active");
   const [salaryAmount, setSalaryAmount] = useState("");
+  const [payFromShiftStart, setPayFromShiftStart] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +48,7 @@ export function EmployeeFormModal({
     setSalaryAmount(
       editing?.salary_amount ? String(editing.salary_amount) : "",
     );
+    setPayFromShiftStart(Boolean(editing?.pay_from_shift_start));
     setError(null);
   }, [open, editing, branches]);
 
@@ -67,6 +69,7 @@ export function EmployeeFormModal({
         status,
         salary_type: "hourly" as const,
         salary_amount: salaryAmount ? Number(salaryAmount) : 0,
+        pay_from_shift_start: payFromShiftStart,
       };
 
       if (editing) {
@@ -85,7 +88,7 @@ export function EmployeeFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">
             {editing ? "Sửa nhân viên" : "Thêm nhân viên"}
@@ -213,6 +216,27 @@ export function EmployeeFormModal({
                 placeholder="25000"
               />
             </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <p className="min-w-0 flex-1 text-sm font-medium text-slate-700">
+              Tính lương theo ca
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={payFromShiftStart}
+              onClick={() => setPayFromShiftStart((v) => !v)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                payFromShiftStart ? "bg-emerald-500" : "bg-slate-200"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
+                  payFromShiftStart ? "left-[22px]" : "left-0.5"
+                }`}
+              />
+            </button>
           </div>
 
           <div className="flex gap-2 pt-2">

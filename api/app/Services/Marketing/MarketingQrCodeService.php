@@ -10,6 +10,11 @@ use Illuminate\Validation\ValidationException;
 
 class MarketingQrCodeService
 {
+    public function __construct(
+        private readonly MarketingReviewCampaignService $campaigns,
+    ) {
+    }
+
     /**
      * Đảm bảo mỗi chi nhánh có 1 QR ORDER_VERIFY riêng cho chiến dịch active.
      *
@@ -17,17 +22,7 @@ class MarketingQrCodeService
      */
     public function ensureBranchQrsForActiveCampaign(): array
     {
-        $campaign = MarketingReviewCampaign::query()
-            ->where('status', MarketingReviewCampaign::STATUS_ACTIVE)
-            ->orderByDesc('start_at')
-            ->orderByDesc('id')
-            ->first();
-
-        if (! $campaign) {
-            throw ValidationException::withMessages([
-                'campaign' => 'Chưa có chiến dịch đang chạy. Kích hoạt chiến dịch trước.',
-            ]);
-        }
+        $campaign = $this->campaigns->ensureDefaultActiveCampaign();
 
         $branchIds = $campaign->campaignBranches()->pluck('branch_id')->all();
         $branches = Branch::query()

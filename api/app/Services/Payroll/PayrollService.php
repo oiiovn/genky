@@ -894,7 +894,7 @@ class PayrollService
         $search = trim((string) ($filters['search'] ?? ''));
         $orgId = TenantContext::id();
 
-        // Income minutes = actual attendance only (never leave / assignment).
+        // Income minutes = phút chấm công thực tế. Không cộng hệ số OT / giờ làm thêm.
         $worked = 'coalesce(mws.payroll_worked_minutes, 0)';
         $unpaidDays = 'coalesce(mws.payroll_unpaid_days, 0)';
         $amount = 'coalesce(employees.salary_amount, 0)';
@@ -903,8 +903,9 @@ class PayrollService
         $monthlyCap = "{$amount} * 1.2";
         $hourlyFromMonthly = "({$amount} / 176.0) * ({$hours})";
         $cappedMonthly = "case when {$monthlyCap} < {$hourlyFromMonthly} then {$monthlyCap} else {$hourlyFromMonthly} end";
-        $rawIncome = "case when ({$incomeMinutes}) <= 0 then 0 when employees.salary_type = 'hourly' then {$amount} * ({$hours}) else {$cappedMonthly} end";
-        $dailyRate = "case when employees.salary_type = 'hourly' then {$amount} * 8 else {$amount} / 26.0 end";
+        $hourlyIncome = "round(({$amount} * 1.0 * ({$incomeMinutes})) / 60.0)";
+        $rawIncome = "case when ({$incomeMinutes}) <= 0 then 0 when employees.salary_type = 'hourly' then {$hourlyIncome} else {$cappedMonthly} end";
+        $dailyRate = "case when employees.salary_type = 'hourly' then round(({$amount} * 480.0) / 60.0) else {$amount} / 26.0 end";
         $rawDeductions = "({$unpaidDays}) * ({$dailyRate})";
         $frozen = "pe.status in ('paid', 'partial') and coalesce(pe.net, 0) > 0";
         $income = "case when {$frozen} then pe.income else {$rawIncome} end";
@@ -1048,7 +1049,6 @@ class PayrollService
 
     protected function incomeFromHours(Employee $employee, int $minutes): int
     {
-        $hours = $minutes / 60;
         $amount = (float) $employee->salary_amount;
 
         if ($minutes <= 0) {
@@ -1056,8 +1056,11 @@ class PayrollService
         }
 
         if ($employee->salary_type === 'hourly') {
-            return (int) round($amount * $hours);
+            // Đơn giá/phút × tổng phút làm. Không nhân OT.
+            return (int) round(($amount * $minutes) / 60);
         }
+
+        $hours = $minutes / 60;
 
         return (int) round(min($amount * 1.2, ($amount / 176) * $hours));
     }
@@ -1066,7 +1069,7 @@ class PayrollService
     {
         $amount = (float) $employee->salary_amount;
         if ($employee->salary_type === 'hourly') {
-            return (int) round($amount * 8);
+            return (int) round(($amount * 480) / 60);
         }
 
         return (int) round($amount / 26);

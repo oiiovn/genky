@@ -2,12 +2,26 @@
 
 namespace App\Services\Marketing;
 
+use App\Models\Branch;
+use App\Models\MarketingCampaignBranch;
+use App\Models\MarketingCampaignChannel;
+use App\Models\MarketingChannel;
 use App\Models\MarketingReviewCampaign;
 use App\Models\MarketingRewardCodeSetting;
+use App\Support\Tenancy\TenantContext;
+use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class MarketingReviewCampaignService
 {
+    public const DEFAULT_NAME = 'Mặc định';
+
+    public function __construct(
+        private readonly MarketingChannelService $channels,
+    ) {
+    }
+
     /**
      * @return array{checklist: array<string, bool>, missing: list<string>, ready: bool}
      */
@@ -80,6 +94,112 @@ class MarketingReviewCampaignService
             'campaignRewards',
             'qrCodes',
         ]) ?? $campaign;
+    }
+
+    /**
+     * Đảm bảo org có 1 chiến dịch ACTIVE dài hạn để thêm đánh giá.
+     * Không đụng campaign active sẵn; chỉ tạo/kích hoạt “Mặc định” khi thiếu.
+     */
+    public function ensureDefaultActiveCampaign(): MarketingReviewCampaign
+    {
+        $active = MarketingReviewCampaign::query()
+            ->where('status', MarketingReviewCampaign::STATUS_ACTIVE)
+            ->orderByDesc('start_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($active) {
+            return $active;
+        }
+
+        return DB::transaction(function () {
+            $locked = MarketingReviewCampaign::query()
+                ->where('status', MarketingReviewCampaign::STATUS_ACTIVE)
+                ->lockForUpdate()
+                ->orderByDesc('id')
+                ->first();
+
+            if ($locked) {
+                return $locked;
+            }
+
+            $campaign = MarketingReviewCampaign::query()
+                ->where('name', self::DEFAULT_NAME)
+                ->whereIn('status', [
+                    MarketingReviewCampaign::STATUS_DRAFT,
+                    MarketingReviewCampaign::STATUS_PAUSED,
+                    MarketingReviewCampaign::STATUS_ENDED,
+                ])
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
+
+            $orgId = (int) TenantContext::id();
+            if (! $orgId) {
+                throw ValidationException::withMessages([
+                    'campaign' => 'Thiếu tổ chức để tạo chiến dịch mặc định.',
+                ]);
+            }
+
+            $payload = [
+                'organization_id' => $orgId,
+                'name' => self::DEFAULT_NAME,
+                'description' => 'Chiến dịch mặc định dài hạn — tự tạo để thêm đánh giá.',
+                'status' => MarketingReviewCampaign::STATUS_ACTIVE,
+                'start_at' => Carbon::parse('2020-01-01 00:00:00', 'Asia/Ho_Chi_Minh'),
+                'end_at' => Carbon::parse('2099-12-31 23:59:59', 'Asia/Ho_Chi_Minh'),
+                'min_rating' => 1,
+                'auto_verify' => false,
+                'auto_issue_reward' => false,
+                'created_by' => auth()->id(),
+            ];
+
+            if ($campaign) {
+                $campaign->fill($payload)->save();
+            } else {
+                $campaign = MarketingReviewCampaign::query()->create($payload);
+            }
+
+            $this->attachOrgScope($campaign);
+
+            return $campaign->fresh([
+                'campaignBranches',
+                'campaignChannels',
+            ]) ?? $campaign;
+        });
+    }
+
+    protected function attachOrgScope(MarketingReviewCampaign $campaign): void
+    {
+        $this->channels->seedDefaultsIfEmpty();
+
+        $branchIds = Branch::query()
+            ->where('is_active', true)
+            ->pluck('id');
+        if ($branchIds->isEmpty()) {
+            $branchIds = Branch::query()->pluck('id');
+        }
+
+        foreach ($branchIds as $branchId) {
+            MarketingCampaignBranch::query()->firstOrCreate([
+                'campaign_id' => $campaign->id,
+                'branch_id' => $branchId,
+            ]);
+        }
+
+        $channelIds = MarketingChannel::query()
+            ->where('enabled', true)
+            ->pluck('id');
+
+        foreach ($channelIds as $channelId) {
+            MarketingCampaignChannel::query()->firstOrCreate(
+                [
+                    'campaign_id' => $campaign->id,
+                    'channel_id' => $channelId,
+                ],
+                ['enabled' => true],
+            );
+        }
     }
 
     public function payload(MarketingReviewCampaign $campaign): array

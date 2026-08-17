@@ -82,9 +82,19 @@ class EmployeeModuleTest extends TestCase
             ->assertJsonPath('data.full_name', 'Nguyễn Văn An')
             ->assertJsonPath('data.position.name', 'Phục vụ')
             ->assertJsonPath('data.branches.0.name', 'Lê Đức Thọ')
-            ->assertJsonPath('data.branches.0.is_primary', true);
+            ->assertJsonPath('data.branches.0.is_primary', true)
+            ->assertJsonPath('data.pay_from_shift_start', false);
 
         $id = $created->json('data.id');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->putJson('/api/employees/'.$id, [
+                'pay_from_shift_start' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.pay_from_shift_start', true);
 
         $this->app['auth']->forgetGuards();
 

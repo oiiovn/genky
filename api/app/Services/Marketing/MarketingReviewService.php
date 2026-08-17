@@ -15,6 +15,7 @@ class MarketingReviewService
 {
     public function __construct(
         private readonly MarketingRewardCodeService $rewardCodes,
+        private readonly MarketingReviewCampaignService $campaigns,
     ) {
     }
 
@@ -50,15 +51,7 @@ class MarketingReviewService
         $defaultRating = (int) ($data['rating'] ?? 5);
 
         if (empty($data['campaign_id'])) {
-            $active = MarketingReviewCampaign::query()
-                ->where('status', MarketingReviewCampaign::STATUS_ACTIVE)
-                ->orderByDesc('start_at')
-                ->first();
-            if (! $active) {
-                throw ValidationException::withMessages([
-                    'campaign_id' => 'Chưa có chiến dịch đang active.',
-                ]);
-            }
+            $active = $this->campaigns->ensureDefaultActiveCampaign();
             $data['campaign_id'] = $active->id;
         }
 
@@ -606,11 +599,8 @@ class MarketingReviewService
      */
     public function formMeta(): array
     {
-        $campaign = MarketingReviewCampaign::query()
-            ->with(['campaignBranches', 'campaignChannels'])
-            ->where('status', MarketingReviewCampaign::STATUS_ACTIVE)
-            ->orderByDesc('start_at')
-            ->first();
+        $campaign = $this->campaigns->ensureDefaultActiveCampaign();
+        $campaign->loadMissing(['campaignBranches', 'campaignChannels']);
 
         $channels = \App\Models\MarketingChannel::query()
             ->ordered()

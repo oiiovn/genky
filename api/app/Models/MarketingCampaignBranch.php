@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MarketingCampaignBranch extends Model
 {
+    public $timestamps = false;
+
     protected $fillable = [
         'campaign_id',
         'branch_id',

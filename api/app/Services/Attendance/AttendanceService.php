@@ -12,6 +12,7 @@ use App\Models\LeaveRequest;
 use App\Models\Shift;
 use App\Models\ShiftAssignment;
 use App\Support\Authorization\AttendancePermission;
+use App\Support\DailyWage;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -702,7 +703,7 @@ class AttendanceService
             $out = fopen('php://output', 'w');
             fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
             fputcsv($out, [
-                'employee_code', 'full_name', 'shift', 'check_in', 'check_out', 'total_minutes', 'status', 'location',
+                'employee_code', 'full_name', 'shift', 'check_in', 'check_out', 'total_minutes', 'daily_wage', 'status', 'location',
             ]);
             foreach ($rows as $row) {
                 fputcsv($out, [
@@ -712,6 +713,7 @@ class AttendanceService
                     $row['check_in'],
                     $row['check_out'],
                     $row['total_minutes'],
+                    $row['daily_wage'],
                     $row['ui_status'],
                     $row['location'],
                 ]);
@@ -999,6 +1001,12 @@ class AttendanceService
             $totalMinutes = max(0, $log->check_in_at->diffInMinutes($log->check_out_at) - (int) $log->break_minutes);
         }
 
+        $dailyWage = null;
+        if ($log && $log->check_in_at && $log->check_out_at && ! $log->isLeave() && $log->status !== AttendanceLog::STATUS_ABSENT) {
+            $payable = DailyWage::payableMinutes($log, $shift, (bool) $employee->pay_from_shift_start);
+            $dailyWage = DailyWage::amount($employee, $payable);
+        }
+
         $primaryBranch = $employee->branches->firstWhere('pivot.is_primary', true)
             ?? $employee->branches->first();
         $resolvedBranchId = $log?->branch_id ?? $branchId ?? $primaryBranch?->id;
@@ -1029,6 +1037,7 @@ class AttendanceService
             'check_out_tone' => $checkOutTone,
             'total_minutes' => $totalMinutes,
             'total_hours' => $totalMinutes !== null ? $this->formatDuration((int) $totalMinutes) : '—',
+            'daily_wage' => $dailyWage,
             'status' => $log?->status,
             'ui_status' => $uiStatus,
             'leave_type' => $log?->leave_type,
