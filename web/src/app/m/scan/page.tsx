@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowLeft, CheckCircle2, XCircle } from "lucide-react";
 import { useStaff } from "@/components/staff/StaffShell";
+import { getStaffGeolocation } from "@/lib/attendance-api";
 import {
   parseQrScanValue,
   scanAttendanceQr,
@@ -39,24 +40,7 @@ export default function StaffScanPage() {
       setPaused(true);
       try {
         const payload = parseQrScanValue(raw);
-        let latitude: number | undefined;
-        let longitude: number | undefined;
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-            if (!navigator.geolocation) {
-              reject(new Error("no geo"));
-              return;
-            }
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              timeout: 4000,
-              maximumAge: 60000,
-            });
-          });
-          latitude = pos.coords.latitude;
-          longitude = pos.coords.longitude;
-        } catch {
-          /* optional */
-        }
+        const { latitude, longitude } = await getStaffGeolocation();
 
         const res = await scanAttendanceQr({
           employee_id: session.employeeId,
@@ -105,7 +89,7 @@ export default function StaffScanPage() {
         <div>
           <h1 className="text-lg font-semibold text-white">Quét QR chấm công</h1>
           <p className="text-xs text-slate-400">
-            Đưa camera vào mã QR tại chi nhánh
+            Cần bật GPS · Đưa camera vào mã QR tại chi nhánh
           </p>
         </div>
       </div>

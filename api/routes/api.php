@@ -173,6 +173,7 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
         Route::get('attendances/dashboard', [AttendanceController::class, 'dashboard']);
         Route::get('attendances/shifts/today', [AttendanceController::class, 'shiftsToday']);
         Route::get('attendances/mine', [AttendanceController::class, 'mine']);
+        Route::get('attendances/staff-check', [AttendanceController::class, 'staffCheck']);
         Route::get('attendances/export', [AttendanceController::class, 'export']);
         Route::post('attendances/check-in', [AttendanceController::class, 'checkIn']);
         Route::post('attendances/check-out', [AttendanceController::class, 'checkOut']);

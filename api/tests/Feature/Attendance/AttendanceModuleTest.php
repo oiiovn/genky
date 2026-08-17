@@ -129,6 +129,7 @@ class AttendanceModuleTest extends TestCase
         ]);
 
         $this->app['auth']->forgetGuards();
+        $this->travel(6)->minutes();
 
         $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
             'employee_id' => $employee['id'],
@@ -325,5 +326,131 @@ class AttendanceModuleTest extends TestCase
             ->getJson('/api/attendances/'.$log['id'].'/adjustments')
             ->assertOk()
             ->assertJsonCount(1, 'data');
+    }
+
+    public function test_check_out_requires_five_minute_gap(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'An Gap',
+            'email' => 'an-gap@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertStatus(422);
+
+        $this->app['auth']->forgetGuards();
+        $this->travel(6)->minutes();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+        ])->assertOk();
+    }
+
+    public function test_geofence_rejects_when_outside_radius(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        \App\Models\Branch::query()->withoutGlobalScopes()->whereKey($ctx['branch_id'])->update([
+            'latitude' => 10.7769,
+            'longitude' => 106.7009,
+            'check_in_radius_meters' => 100,
+        ]);
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'An Geo',
+            'email' => 'an-geo@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'source' => 'qr',
+            'latitude' => 10.8000,
+            'longitude' => 106.7009,
+        ])->assertStatus(422);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'source' => 'qr',
+            'latitude' => 10.7769,
+            'longitude' => 106.7009,
+        ])->assertCreated();
+    }
+
+    public function test_staff_check_status_payload(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'An Staff',
+            'email' => 'an-staff-check@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->json('data');
+
+        $staffUser = User::factory()->create([
+            'email' => 'staff-check@fresh.test',
+            'password' => 'Password1!',
+        ]);
+
+        OrganizationUser::query()->create([
+            'organization_id' => $ctx['org_id'],
+            'user_id' => $staffUser->id,
+            'role' => OrganizationUser::ROLE_EMPLOYEE,
+            'is_default' => true,
+        ]);
+
+        $staffUser->forceFill([
+            'current_organization_id' => $ctx['org_id'],
+        ])->save();
+
+        Employee::query()->withoutGlobalScopes()->whereKey($employee['id'])->update([
+            'user_id' => $staffUser->id,
+        ]);
+
+        $login = $this->postJson('/api/auth/login', [
+            'login' => 'staff-check@fresh.test',
+            'password' => 'Password1!',
+        ])->assertOk()->json();
+
+        $token = $login['access_token'];
+        $this->assertNotEmpty($token);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)
+            ->getJson('/api/attendances/staff-check?branch_id='.$ctx['branch_id'])
+            ->assertOk()
+            ->assertJsonPath('data.qr_enabled', true)
+            ->assertJsonPath('data.today.can_check_in', true)
+            ->assertJsonStructure([
+                'data' => [
+                    'employee_id',
+                    'qr_enabled',
+                    'allow_check_in',
+                    'allow_check_out',
+                    'geofence' => ['required', 'radius_meters'],
+                    'today' => [
+                        'can_check_in',
+                        'can_check_out',
+                        'seconds_until_checkout',
+                    ],
+                ],
+            ]);
     }
 }

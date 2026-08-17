@@ -20,8 +20,8 @@ class ScanAttendanceQrRequest extends FormRequest
             'slot' => ['required', 'integer', 'min:0'],
             'token' => ['required', 'string', 'size:64'],
             'action' => ['nullable', Rule::in(['auto', 'check_in', 'check_out'])],
-            'latitude' => ['nullable', 'numeric'],
-            'longitude' => ['nullable', 'numeric'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'device' => ['nullable', 'string', 'max:191'],
         ];
     }

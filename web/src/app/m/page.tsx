@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Award,
   CalendarDays,
   ChevronRight,
+  LogIn,
+  LogOut,
   QrCode,
   Timer,
   Umbrella,
@@ -13,14 +15,17 @@ import {
 } from "lucide-react";
 import { useStaff } from "@/components/staff/StaffShell";
 import {
-  fetchMyAttendances,
+  checkInAttendance,
+  checkOutAttendance,
+  fetchStaffCheckStatus,
+  getStaffGeolocation,
   statusLabel,
   statusTone,
-  type AttendanceRow,
+  type StaffCheckStatus,
 } from "@/lib/attendance-api";
 import { fetchPayrolls, type PayrollRow } from "@/lib/payroll-api";
 import { formatVnd } from "@/lib/staff";
-import { currentMonth, currentYear, todayIso } from "@/lib/timezone";
+import { currentMonth, currentYear } from "@/lib/timezone";
 
 const quick = [
   { href: "/m/scan", label: "Quét QR", icon: QrCode, tone: "from-sky-400 to-indigo-500" },
@@ -36,38 +41,112 @@ const payStatus: Record<string, string> = {
   partial: "Trả một phần",
 };
 
+function formatCountdown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export default function StaffHomePage() {
   const { session } = useStaff();
-  const [today, setToday] = useState<AttendanceRow | null>(null);
+  const [check, setCheck] = useState<StaffCheckStatus | null>(null);
   const [payroll, setPayroll] = useState<PayrollRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [waitLeft, setWaitLeft] = useState(0);
   const month = currentMonth();
   const year = currentYear();
+
+  const primaryBranchId =
+    session.branches.find((b) => b.is_primary)?.id ?? session.branches[0]?.id;
+
+  const reloadCheck = useCallback(async () => {
+    const status = await fetchStaffCheckStatus(primaryBranchId);
+    setCheck(status);
+    setWaitLeft(status.today.seconds_until_checkout ?? 0);
+  }, [primaryBranchId]);
 
   useEffect(() => {
     async function load() {
       try {
-        const [att, pay] = await Promise.all([
-          fetchMyAttendances({ date: todayIso() }).catch(() => []),
+        const [status, pay] = await Promise.all([
+          fetchStaffCheckStatus(primaryBranchId).catch(() => null),
           fetchPayrolls({ year, month, per_page: 20 }).catch(() => null),
         ]);
-        const mineAtt = att[0] ?? null;
+        setCheck(status);
+        setWaitLeft(status?.today.seconds_until_checkout ?? 0);
         const minePay =
           pay?.data.find((r) => r.employee.id === session.employeeId) ??
           pay?.data[0] ??
           null;
-        setToday(mineAtt);
         setPayroll(minePay);
       } finally {
         setLoading(false);
       }
     }
     void load();
-  }, [session.employeeId, year, month]);
+  }, [session.employeeId, year, month, primaryBranchId]);
+
+  const countingDown = waitLeft > 0;
+  useEffect(() => {
+    if (!countingDown) return;
+    const id = window.setInterval(() => {
+      setWaitLeft((prev) => {
+        const next = Math.max(0, prev - 1);
+        if (next === 0) {
+          void reloadCheck().catch(() => undefined);
+        }
+        return next;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [countingDown, reloadCheck]);
+
+  async function runAction(kind: "in" | "out") {
+    if (!check || busy) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const geo = await getStaffGeolocation();
+      if (kind === "in") {
+        await checkInAttendance({
+          employee_id: check.employee_id,
+          branch_id: check.branch.id,
+          latitude: geo.latitude,
+          longitude: geo.longitude,
+          source: "staff_app",
+          location_label: `App · ${check.branch.name}`,
+        });
+      } else {
+        await checkOutAttendance({
+          employee_id: check.employee_id,
+          branch_id: check.branch.id,
+          latitude: geo.latitude,
+          longitude: geo.longitude,
+          source: "staff_app",
+        });
+      }
+      await reloadCheck();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Không thể chấm công.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const hour = new Date().getHours();
   const hello =
     hour < 12 ? "Chào buổi sáng" : hour < 18 ? "Chào buổi chiều" : "Chào buổi tối";
+
+  const today = check?.today;
+  const showCheckIn = Boolean(today?.can_check_in);
+  const showCheckOut =
+    Boolean(today?.can_check_out) ||
+    (Boolean(check?.allow_check_out) &&
+      Boolean(check?.qr_enabled) &&
+      today?.ui_status === "working" &&
+      waitLeft > 0);
 
   return (
     <div className="px-4 pt-6">
@@ -99,21 +178,66 @@ export default function StaffHomePage() {
                 Vào {today.check_in ?? "—"} · Ra {today.check_out ?? "—"}
               </p>
             ) : null}
+            {check ? (
+              <p className="mt-1 text-xs text-slate-400">{check.branch.name}</p>
+            ) : null}
           </div>
           {today ? (
             <span
               className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone[today.ui_status]}`}
             >
-              {today.shift_name || "Ca làm"}
+              Ca làm
             </span>
           ) : null}
         </div>
+
+        {actionError ? (
+          <p className="mt-3 rounded-2xl bg-rose-500/15 px-3 py-2 text-xs text-rose-200">
+            {actionError}
+          </p>
+        ) : null}
+
+        {showCheckIn || showCheckOut ? (
+          <div className="mt-4 grid gap-2">
+            {showCheckIn ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void runAction("in")}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-900 disabled:opacity-60"
+              >
+                <LogIn className="h-4 w-4" />
+                {busy ? "Đang xử lý..." : "Check-in"}
+              </button>
+            ) : null}
+            {showCheckOut ? (
+              <button
+                type="button"
+                disabled={busy || waitLeft > 0 || !today?.can_check_out}
+                onClick={() => void runAction("out")}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 disabled:opacity-60"
+              >
+                <LogOut className="h-4 w-4" />
+                {waitLeft > 0
+                  ? `Check-out sau ${formatCountdown(waitLeft)}`
+                  : busy
+                    ? "Đang xử lý..."
+                    : "Check-out"}
+              </button>
+            ) : null}
+          </div>
+        ) : check && !check.qr_enabled ? (
+          <p className="mt-4 text-xs text-slate-400">
+            Chi nhánh chưa bật chấm công app. Dùng quét QR khi chủ mở cấu hình.
+          </p>
+        ) : null}
+
         <Link
           href="/m/scan"
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white"
         >
           <QrCode className="h-4 w-4" />
-          Mở camera quét mã chấm công
+          Quét mã QR chấm công
         </Link>
       </section>
 

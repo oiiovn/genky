@@ -211,6 +211,7 @@ class AttendanceQrService
             'device' => $data['device'] ?? request()->userAgent(),
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
+            'source' => 'qr',
         ];
 
         $log = $action === 'check_out'

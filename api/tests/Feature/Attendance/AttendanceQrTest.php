@@ -122,6 +122,7 @@ class AttendanceQrTest extends TestCase
             ->assertJsonPath('action', 'check_in');
 
         $this->app['auth']->forgetGuards();
+        $this->travel(6)->minutes();
 
         $current2 = $this->withToken($ctx['token'])
             ->getJson('/api/attendances/qr/current?branch_id='.$ctx['branch_id'])

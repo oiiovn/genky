@@ -186,6 +186,9 @@ export async function checkInAttendance(payload: {
   location_label?: string;
   work_date?: string;
   check_in_time?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  source?: "admin" | "staff_app" | "qr";
 }): Promise<AttendanceRow> {
   const res = await fetch(`${apiUrl()}/attendances/check-in`, {
     method: "POST",
@@ -203,6 +206,9 @@ export async function checkOutAttendance(payload: {
   work_date?: string;
   check_out_time?: string;
   note?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  source?: "admin" | "staff_app" | "qr";
 }): Promise<AttendanceRow> {
   const res = await fetch(`${apiUrl()}/attendances/check-out`, {
     method: "POST",
@@ -212,6 +218,75 @@ export async function checkOutAttendance(payload: {
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
   return json.data as AttendanceRow;
+}
+
+export type StaffCheckStatus = {
+  employee_id: number;
+  branch: {
+    id: number;
+    name: string;
+    address: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    check_in_radius_meters: number;
+  };
+  qr_enabled: boolean;
+  allow_check_in: boolean;
+  allow_check_out: boolean;
+  valid_from: string | null;
+  valid_to: string | null;
+  within_hours: boolean;
+  geofence: {
+    required: boolean;
+    has_coordinates: boolean;
+    radius_meters: number;
+  };
+  min_checkout_gap_minutes: number;
+  today: {
+    work_date: string;
+    check_in: string | null;
+    check_out: string | null;
+    ui_status: AttendanceUiStatus;
+    can_check_in: boolean;
+    can_check_out: boolean;
+    checkout_available_at: string | null;
+    seconds_until_checkout: number | null;
+  };
+  branches: { id: number; name: string; is_primary: boolean }[];
+};
+
+export async function fetchStaffCheckStatus(branchId?: number): Promise<StaffCheckStatus> {
+  const q = new URLSearchParams();
+  if (branchId) q.set("branch_id", String(branchId));
+  const res = await fetch(`${apiUrl()}/attendances/staff-check?${q}`, {
+    headers: authHeaders(false),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = await res.json();
+  return json.data as StaffCheckStatus;
+}
+
+export async function getStaffGeolocation(timeoutMs = 8000): Promise<{
+  latitude: number;
+  longitude: number;
+}> {
+  if (!navigator.geolocation) {
+    throw new Error("Thiết bị không hỗ trợ GPS. Hãy bật định vị để chấm công.");
+  }
+  const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: timeoutMs,
+      maximumAge: 15000,
+    });
+  }).catch(() => {
+    throw new Error("Cần bật định vị GPS và cho phép truy cập vị trí để chấm công.");
+  });
+  return {
+    latitude: pos.coords.latitude,
+    longitude: pos.coords.longitude,
+  };
 }
 
 export async function exportAttendances(params: {

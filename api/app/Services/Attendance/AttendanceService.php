@@ -5,6 +5,7 @@ namespace App\Services\Attendance;
 use App\Models\AttendanceAdjustment;
 use App\Models\AttendanceExclusion;
 use App\Models\AttendanceLog;
+use App\Models\AttendanceQrSetting;
 use App\Models\Branch;
 use App\Models\Employee;
 use App\Models\LeaveRequest;
@@ -24,6 +25,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceService
 {
+    public const MIN_CHECKOUT_GAP_MINUTES = 5;
+
     /** @var array<string, Collection<int, array<string, mixed>>> */
     protected array $rosterMemo = [];
 
@@ -158,7 +161,16 @@ class AttendanceService
         $employee = Employee::query()->findOrFail((int) $data['employee_id']);
         $branchId = (int) $data['branch_id'];
         $permission->assertCanCheckFor($employee, $branchId);
-        Branch::query()->findOrFail($branchId);
+        $branch = Branch::query()->findOrFail($branchId);
+
+        $source = (string) ($data['source'] ?? 'admin');
+        $this->assertStaffSelfServiceAllowed($permission, $branchId, 'check_in', $source);
+        $this->assertGeofence(
+            $branch,
+            isset($data['latitude']) ? (float) $data['latitude'] : null,
+            isset($data['longitude']) ? (float) $data['longitude'] : null,
+            $this->shouldEnforceLocation($permission, $source),
+        );
 
         $date = $data['work_date'] ?? now()->toDateString();
         $this->assertNotOnLeave((int) $employee->id, $date);
@@ -227,6 +239,16 @@ class AttendanceService
         $employee = Employee::query()->findOrFail((int) $data['employee_id']);
         $branchId = (int) $data['branch_id'];
         $permission->assertCanCheckFor($employee, $branchId);
+        $branch = Branch::query()->findOrFail($branchId);
+
+        $source = (string) ($data['source'] ?? 'admin');
+        $this->assertStaffSelfServiceAllowed($permission, $branchId, 'check_out', $source);
+        $this->assertGeofence(
+            $branch,
+            isset($data['latitude']) ? (float) $data['latitude'] : null,
+            isset($data['longitude']) ? (float) $data['longitude'] : null,
+            $this->shouldEnforceLocation($permission, $source),
+        );
 
         $date = $data['work_date'] ?? now()->toDateString();
         $checkOutAt = isset($data['check_out_time']) && $data['check_out_time']
@@ -259,6 +281,17 @@ class AttendanceService
                 ]);
             }
 
+            $earliest = $log->check_in_at->copy()->addMinutes(self::MIN_CHECKOUT_GAP_MINUTES);
+            if ($checkOutAt->lt($earliest)) {
+                $wait = max(1, (int) ceil($checkOutAt->diffInSeconds($earliest) / 60));
+                throw ValidationException::withMessages([
+                    'check_out_time' => [
+                        'Check-out phải cách check-in ít nhất '.self::MIN_CHECKOUT_GAP_MINUTES
+                        .' phút (còn khoảng '.$wait.' phút).',
+                    ],
+                ]);
+            }
+
             $break = (int) ($data['break_minutes'] ?? $log->break_minutes ?? 0);
             $total = max(0, $log->check_in_at->diffInMinutes($checkOutAt) - $break);
 
@@ -275,6 +308,236 @@ class AttendanceService
 
             return $log->fresh(['employee.position', 'shift', 'branch']);
         });
+    }
+
+    /**
+     * Trạng thái chấm công + quyền nút app nhân viên theo cấu hình QR chi nhánh.
+     *
+     * @return array<string, mixed>
+     */
+    public function staffCheckStatus(?int $branchId = null): array
+    {
+        $permission = AttendancePermission::for();
+        $permission->assertCanViewAny();
+        $own = $permission->ownEmployee();
+        if (! $own) {
+            throw ValidationException::withMessages([
+                'employee' => ['Tài khoản chưa gắn hồ sơ nhân viên.'],
+            ]);
+        }
+
+        $own->loadMissing('branches');
+        $branch = null;
+        if ($branchId) {
+            $branch = $own->branches->firstWhere('id', $branchId);
+        }
+        $branch ??= $own->branches->firstWhere('pivot.is_primary', true)
+            ?? $own->branches->first();
+
+        if (! $branch) {
+            throw ValidationException::withMessages([
+                'branch_id' => ['Nhân viên chưa được gán chi nhánh.'],
+            ]);
+        }
+
+        $setting = AttendanceQrSetting::query()->firstOrCreate(
+            [
+                'organization_id' => TenantContext::id(),
+                'branch_id' => $branch->id,
+            ],
+            [
+                'enabled' => true,
+                'rotate_seconds' => 30,
+                'valid_from' => '00:00',
+                'valid_to' => '23:59',
+                'allow_check_in' => true,
+                'allow_check_out' => true,
+            ]
+        );
+
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+        $today = $now->toDateString();
+        $log = AttendanceLog::query()
+            ->where('employee_id', $own->id)
+            ->where('branch_id', $branch->id)
+            ->whereDate('work_date', $today)
+            ->first();
+
+        $withinHours = $this->qrWithinHours($setting, $now);
+        $staffButtonsEnabled = (bool) $setting->enabled && $withinHours;
+        $hasCoords = $branch->latitude !== null && $branch->longitude !== null;
+        $checkedIn = (bool) $log?->check_in_at;
+        $checkedOut = (bool) $log?->check_out_at;
+
+        $checkoutAvailableAt = null;
+        $secondsUntilCheckout = null;
+        if ($checkedIn && ! $checkedOut && $log?->check_in_at) {
+            $earliest = $log->check_in_at->copy()->addMinutes(self::MIN_CHECKOUT_GAP_MINUTES);
+            $checkoutAvailableAt = $earliest->toIso8601String();
+            $secondsUntilCheckout = $earliest->greaterThan($now)
+                ? (int) $now->diffInSeconds($earliest)
+                : 0;
+        }
+
+        $canCheckIn = $staffButtonsEnabled
+            && (bool) $setting->allow_check_in
+            && ! $checkedIn;
+
+        $canCheckOut = $staffButtonsEnabled
+            && (bool) $setting->allow_check_out
+            && $checkedIn
+            && ! $checkedOut
+            && ($secondsUntilCheckout === null || $secondsUntilCheckout === 0);
+
+        return [
+            'employee_id' => $own->id,
+            'branch' => [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'address' => $branch->address,
+                'latitude' => $branch->latitude,
+                'longitude' => $branch->longitude,
+                'check_in_radius_meters' => (int) ($branch->check_in_radius_meters ?: 100),
+            ],
+            'qr_enabled' => (bool) $setting->enabled,
+            'allow_check_in' => (bool) $setting->allow_check_in,
+            'allow_check_out' => (bool) $setting->allow_check_out,
+            'valid_from' => $setting->valid_from,
+            'valid_to' => $setting->valid_to,
+            'within_hours' => $withinHours,
+            'geofence' => [
+                'required' => $hasCoords,
+                'has_coordinates' => $hasCoords,
+                'radius_meters' => (int) ($branch->check_in_radius_meters ?: 100),
+            ],
+            'min_checkout_gap_minutes' => self::MIN_CHECKOUT_GAP_MINUTES,
+            'today' => [
+                'work_date' => $today,
+                'check_in' => $log?->check_in_at?->timezone('Asia/Ho_Chi_Minh')->format('H:i'),
+                'check_out' => $log?->check_out_at?->timezone('Asia/Ho_Chi_Minh')->format('H:i'),
+                'ui_status' => $checkedOut
+                    ? 'checked_out'
+                    : ($checkedIn ? 'working' : 'not_checked_in'),
+                'can_check_in' => $canCheckIn,
+                'can_check_out' => $canCheckOut,
+                'checkout_available_at' => $checkoutAvailableAt,
+                'seconds_until_checkout' => $secondsUntilCheckout,
+            ],
+            'branches' => $own->branches->map(fn (Branch $b) => [
+                'id' => $b->id,
+                'name' => $b->name,
+                'is_primary' => (bool) $b->pivot->is_primary,
+            ])->values()->all(),
+        ];
+    }
+
+    protected function shouldEnforceLocation(AttendancePermission $permission, string $source): bool
+    {
+        return $permission->isEmployeeOnly()
+            || in_array($source, ['qr', 'staff_app'], true);
+    }
+
+    protected function assertStaffSelfServiceAllowed(
+        AttendancePermission $permission,
+        int $branchId,
+        string $action,
+        string $source,
+    ): void {
+        if (! $permission->isEmployeeOnly() && $source !== 'staff_app') {
+            return;
+        }
+
+        $setting = AttendanceQrSetting::query()
+            ->where('branch_id', $branchId)
+            ->first();
+
+        if (! $setting || ! $setting->enabled) {
+            throw ValidationException::withMessages([
+                'branch_id' => ['Chi nhánh chưa bật chấm công trên app nhân viên (cấu hình QR).'],
+            ]);
+        }
+
+        $now = Carbon::now('Asia/Ho_Chi_Minh');
+        if (! $this->qrWithinHours($setting, $now)) {
+            throw ValidationException::withMessages([
+                'branch_id' => ['Ngoài khung giờ chấm công của chi nhánh.'],
+            ]);
+        }
+
+        if ($action === 'check_in' && ! $setting->allow_check_in) {
+            throw ValidationException::withMessages([
+                'action' => ['Chi nhánh này không cho phép Check-in trên app nhân viên.'],
+            ]);
+        }
+
+        if ($action === 'check_out' && ! $setting->allow_check_out) {
+            throw ValidationException::withMessages([
+                'action' => ['Chi nhánh này không cho phép Check-out trên app nhân viên.'],
+            ]);
+        }
+    }
+
+    protected function assertGeofence(
+        Branch $branch,
+        ?float $latitude,
+        ?float $longitude,
+        bool $enforce,
+    ): void {
+        if (! $enforce) {
+            return;
+        }
+
+        if ($branch->latitude === null || $branch->longitude === null) {
+            return;
+        }
+
+        if ($latitude === null || $longitude === null) {
+            throw ValidationException::withMessages([
+                'latitude' => ['Cần bật định vị GPS để chấm công tại chi nhánh này.'],
+            ]);
+        }
+
+        $radius = max(20, (int) ($branch->check_in_radius_meters ?: 100));
+        $distance = $this->distanceMeters(
+            (float) $branch->latitude,
+            (float) $branch->longitude,
+            $latitude,
+            $longitude,
+        );
+
+        if ($distance > $radius) {
+            throw ValidationException::withMessages([
+                'latitude' => [
+                    'Bạn đang ngoài phạm vi chi nhánh (cách khoảng '
+                    .(int) round($distance).'m, cho phép tối đa '.$radius.'m).',
+                ],
+            ]);
+        }
+    }
+
+    protected function distanceMeters(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $earth = 6371000.0;
+        $φ1 = deg2rad($lat1);
+        $φ2 = deg2rad($lat2);
+        $Δφ = deg2rad($lat2 - $lat1);
+        $Δλ = deg2rad($lon2 - $lon1);
+        $a = sin($Δφ / 2) ** 2 + cos($φ1) * cos($φ2) * sin($Δλ / 2) ** 2;
+
+        return 2 * $earth * asin(min(1.0, sqrt($a)));
+    }
+
+    protected function qrWithinHours(AttendanceQrSetting $setting, Carbon $now): bool
+    {
+        $from = $setting->valid_from ?: '00:00';
+        $to = $setting->valid_to ?: '23:59';
+        $hm = $now->format('H:i');
+
+        if ($from <= $to) {
+            return $hm >= $from && $hm <= $to;
+        }
+
+        return $hm >= $from || $hm <= $to;
     }
 
     public function update(AttendanceLog $log, array $data): AttendanceLog

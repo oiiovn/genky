@@ -69,6 +69,15 @@ class AttendanceController extends Controller
         ]);
     }
 
+    public function staffCheck(Request $request): JsonResponse
+    {
+        $branchId = $request->filled('branch_id') ? (int) $request->integer('branch_id') : null;
+
+        return response()->json([
+            'data' => $this->attendance->staffCheckStatus($branchId),
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $paginator = $this->attendance->list($request->only([
