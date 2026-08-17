@@ -506,10 +506,10 @@ class AttendanceService
         );
 
         if ($distance > $radius) {
+            $place = trim((string) ($branch->name ?: 'chi nhánh'));
             throw ValidationException::withMessages([
                 'latitude' => [
-                    'Bạn đang ngoài phạm vi chi nhánh (cách khoảng '
-                    .(int) round($distance).'m, cho phép tối đa '.$radius.'m).',
+                    'Bạn chưa thật sự có mặt ở cửa hàng '.$place.'.',
                 ],
             ]);
         }
