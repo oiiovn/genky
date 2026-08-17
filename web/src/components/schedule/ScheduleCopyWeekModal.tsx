@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import type { Branch } from "@/lib/api";
 import { formatRangeLabel } from "@/lib/schedule-utils";
 import { copyWeekScheduleAssignments } from "@/lib/schedule-api";
 import { todayIso } from "@/lib/timezone";

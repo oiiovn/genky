@@ -11,6 +11,8 @@ use App\Support\Authorization\ShiftPermission;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -95,29 +97,42 @@ class ShiftAssignmentService
             ]);
         }
 
-        $exists = ShiftAssignment::query()
-            ->where('employee_id', $employee->id)
-            ->where('shift_id', $shift->id)
-            ->where('branch_id', $branch->id)
-            ->whereDate('date', $date->toDateString())
-            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
-            ->exists();
+        return DB::transaction(function () use ($data, $employee, $shift, $branch, $date) {
+            ShiftAssignment::query()
+                ->where('employee_id', $employee->id)
+                ->where('branch_id', $branch->id)
+                ->whereDate('date', $date->toDateString())
+                ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+                ->where('shift_id', '!=', $shift->id)
+                ->update(['status' => ShiftAssignment::STATUS_CANCELLED]);
 
-        if ($exists) {
-            throw ValidationException::withMessages([
-                'employee_id' => ['Nhân viên đã được phân ca này trong ngày.'],
-            ]);
-        }
+            $existing = ShiftAssignment::query()
+                ->where('employee_id', $employee->id)
+                ->where('shift_id', $shift->id)
+                ->where('branch_id', $branch->id)
+                ->whereDate('date', $date->toDateString())
+                ->lockForUpdate()
+                ->first();
 
-        return ShiftAssignment::query()->create([
-            'organization_id' => TenantContext::id(),
-            'employee_id' => $employee->id,
-            'shift_id' => $shift->id,
-            'branch_id' => $branch->id,
-            'date' => $date->toDateString(),
-            'status' => ShiftAssignment::STATUS_ASSIGNED,
-            'note' => $data['note'] ?? null,
-        ])->load(['employee', 'shift', 'branch']);
+            if ($existing) {
+                $existing->forceFill([
+                    'status' => ShiftAssignment::STATUS_ASSIGNED,
+                    'note' => array_key_exists('note', $data) ? ($data['note'] ?? null) : $existing->note,
+                ])->save();
+
+                return $existing->fresh(['employee', 'shift', 'branch']);
+            }
+
+            return ShiftAssignment::query()->create([
+                'organization_id' => TenantContext::id(),
+                'employee_id' => $employee->id,
+                'shift_id' => $shift->id,
+                'branch_id' => $branch->id,
+                'date' => $date->toDateString(),
+                'status' => ShiftAssignment::STATUS_ASSIGNED,
+                'note' => $data['note'] ?? null,
+            ])->load(['employee', 'shift', 'branch']);
+        });
     }
 
     /**
@@ -205,7 +220,7 @@ class ShiftAssignmentService
 
         $this->assertNotInPast($targetFrom);
 
-        $offsetDays = $sourceFrom->diffInDays($targetFrom, false);
+        $offsetDays = (int) round($sourceFrom->diffInDays($targetFrom, false));
         $branchFilter = ! empty($data['branch_id']) ? (int) $data['branch_id'] : null;
         if ($branchFilter) {
             $permission->assertCanAccessBranch($branchFilter);
@@ -262,7 +277,7 @@ class ShiftAssignmentService
             $this->assign($data);
 
             return true;
-        } catch (ValidationException) {
+        } catch (ValidationException|ModelNotFoundException|QueryException) {
             return false;
         }
     }

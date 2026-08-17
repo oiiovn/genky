@@ -390,8 +390,8 @@ class ShiftModuleTest extends TestCase
                 'date_to' => $to,
             ])
             ->assertOk()
-            ->assertJsonPath('data.created', 0)
-            ->assertJsonPath('data.skipped', 3);
+            ->assertJsonPath('data.created', 3)
+            ->assertJsonPath('data.skipped', 0);
     }
 
     public function test_copy_week_duplicates_assignments(): void
@@ -438,5 +438,84 @@ class ShiftModuleTest extends TestCase
                 ->where('status', ShiftAssignment::STATUS_ASSIGNED)
                 ->count(),
         );
+    }
+
+    public function test_reassign_after_cancel_does_not_server_error(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Reassign NV',
+            'email' => 'reassign-shift@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $shiftId = $this->withToken($ctx['token'])
+            ->getJson('/api/shifts?search=Ca sáng')
+            ->json('data.0.id');
+        $this->app['auth']->forgetGuards();
+
+        $date = now()->toDateString();
+        $assignment = $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $shiftId,
+            'branch_id' => $ctx['branch_id'],
+            'date' => $date,
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->deleteJson('/api/shift-assignments/'.$assignment['id'])
+            ->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $shiftId,
+            'branch_id' => $ctx['branch_id'],
+            'date' => $date,
+        ])->assertCreated();
+    }
+
+    public function test_assign_overwrites_existing_shift_same_day(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Overwrite NV',
+            'email' => 'overwrite-shift@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $shifts = $this->withToken($ctx['token'])->getJson('/api/shifts')->json('data');
+        $morningId = collect($shifts)->firstWhere('name', 'Ca sáng')['id'];
+        $afternoonId = collect($shifts)->firstWhere('name', 'Ca chiều')['id'];
+        $this->app['auth']->forgetGuards();
+
+        $date = now()->toDateString();
+        $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $morningId,
+            'branch_id' => $ctx['branch_id'],
+            'date' => $date,
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $afternoonId,
+            'branch_id' => $ctx['branch_id'],
+            'date' => $date,
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $rows = ShiftAssignment::query()
+            ->withoutGlobalScopes()
+            ->where('employee_id', $employee['id'])
+            ->whereDate('date', $date)
+            ->get();
+
+        $this->assertSame(1, $rows->where('status', ShiftAssignment::STATUS_ASSIGNED)->count());
+        $this->assertSame($afternoonId, (int) $rows->firstWhere('status', ShiftAssignment::STATUS_ASSIGNED)->shift_id);
     }
 }

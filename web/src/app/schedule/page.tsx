@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAdminChrome } from "@/components/admin/AdminShell";
 import { ScheduleBulkAssignModal } from "@/components/schedule/ScheduleBulkAssignModal";
@@ -46,6 +46,20 @@ import { nowInAppTz, todayIso } from "@/lib/timezone";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export default function SchedulePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-1 items-center justify-center p-8 text-sm text-slate-400">
+          Đang tải lịch làm việc...
+        </div>
+      }
+    >
+      <SchedulePageClient />
+    </Suspense>
+  );
+}
+
+function SchedulePageClient() {
   const { branches } = useAdminChrome();
   const searchParams = useSearchParams();
   const [shifts, setShifts] = useState<Shift[]>([]);
