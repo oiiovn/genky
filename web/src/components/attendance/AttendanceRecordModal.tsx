@@ -152,7 +152,12 @@ export function AttendanceRecordModal({
                 }
               />
               <Field label="Ca làm" value={`${row.shift_name} (${row.shift_time})`} />
-              <Field label="Tổng giờ" value={row.total_hours} />
+              <Field
+                label="Tổng phút"
+                value={
+                  row.total_minutes != null ? String(row.total_minutes) : "—"
+                }
+              />
               <Field label="Tiền công" value={formatDailyWage(row.daily_wage)} />
               <Field label="Check-in" value={row.check_in} />
               <Field label="Check-out" value={row.check_out} />

@@ -143,7 +143,7 @@ export function AttendanceTable({
               <th className="px-3 py-3 font-medium">Ca làm</th>
               <th className="px-3 py-3 font-medium">Check-in</th>
               <th className="px-3 py-3 font-medium">Check-out</th>
-              <th className="px-3 py-3 font-medium">Tổng giờ</th>
+              <th className="px-3 py-3 font-medium">Tổng phút</th>
               <th className="px-3 py-3 font-medium">Tiền công</th>
               <th className="px-3 py-3 font-medium">Trạng thái</th>
               <th className="px-3 py-3 font-medium">Chi nhánh</th>
@@ -207,7 +207,7 @@ export function AttendanceTable({
                     </p>
                   </td>
                   <td className="px-3 py-3 font-medium text-slate-700">
-                    {row.total_hours ?? "—"}
+                    {row.total_minutes != null ? row.total_minutes : "—"}
                   </td>
                   <td className="px-3 py-3 font-semibold text-slate-800">
                     {formatDailyWage(row.daily_wage)}
