@@ -1,6 +1,6 @@
 export default function StaffLoading() {
   return (
-    <div className="min-h-dvh animate-pulse bg-[#0B1220] px-4 pb-24 pt-6 text-white">
+    <div className="min-h-dvh animate-pulse bg-[#0B1220] px-4 pb-24 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] text-white">
       <div className="mx-auto max-w-lg">
         <div className="flex items-center justify-between">
           <div>

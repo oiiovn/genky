@@ -78,7 +78,7 @@ export default function StaffScanPage() {
   );
 
   return (
-    <div className="flex min-h-dvh flex-col px-4 pt-4 pb-6">
+    <div className="flex min-h-dvh flex-col px-4 pt-2 pb-6">
       <div className="mb-4 flex items-center gap-3">
         <Link
           href="/m"

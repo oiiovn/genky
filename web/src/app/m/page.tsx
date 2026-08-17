@@ -149,7 +149,7 @@ export default function StaffHomePage() {
       waitLeft > 0);
 
   return (
-    <div className="px-4 pt-6">
+    <div className="px-4 pt-4">
       <header className="mb-6">
         <p className="text-xs font-semibold tracking-[0.2em] text-sky-300/80 uppercase">
           Genky Staff

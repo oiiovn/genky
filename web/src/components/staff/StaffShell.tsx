@@ -101,7 +101,7 @@ export function StaffShell({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-[#0B1220] text-slate-300">
+      <div className="flex min-h-dvh items-center justify-center bg-[#0B1220] pt-[env(safe-area-inset-top,0px)] text-slate-300">
         Đang mở Genky Staff...
       </div>
     );
@@ -109,7 +109,7 @@ export function StaffShell({ children }: { children: ReactNode }) {
 
   if (error || !value) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#0B1220] px-6 text-center">
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#0B1220] px-6 pt-[env(safe-area-inset-top,0px)] text-center">
         <p className="text-sm text-rose-300">{error ?? "Không tải được."}</p>
         <button
           type="button"
@@ -132,7 +132,15 @@ export function StaffShell({ children }: { children: ReactNode }) {
     <StaffContext.Provider value={value}>
       <div className="min-h-dvh bg-[radial-gradient(120%_80%_at_50%_-10%,#1e3a5f_0%,#0B1220_55%)] text-slate-100">
         <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
-          <div className={hideNav ? "flex-1" : "flex-1 pb-24"}>{children}</div>
+          <div
+            className={
+              hideNav
+                ? "flex-1 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
+                : "flex-1 pb-24 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
+            }
+          >
+            {children}
+          </div>
           {!hideNav ? <StaffBottomNav /> : null}
         </div>
       </div>
