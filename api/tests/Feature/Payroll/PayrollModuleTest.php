@@ -590,6 +590,7 @@ class PayrollModuleTest extends TestCase
         $ctx = $this->seedOwnerWithBranch();
         $year = (int) now()->year;
         $month = (int) now()->month;
+        $date = now()->toDateString();
 
         $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
             'full_name' => 'Không OT',
@@ -603,7 +604,7 @@ class PayrollModuleTest extends TestCase
         $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
             'employee_id' => $employee['id'],
             'branch_id' => $ctx['branch_id'],
-            'work_date' => now()->toDateString(),
+            'work_date' => $date,
             'check_in_time' => '08:00',
         ])->assertCreated();
 
@@ -612,7 +613,7 @@ class PayrollModuleTest extends TestCase
         $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
             'employee_id' => $employee['id'],
             'branch_id' => $ctx['branch_id'],
-            'work_date' => now()->toDateString(),
+            'work_date' => $date,
             'check_out_time' => '18:00',
         ])->assertOk();
 
@@ -635,5 +636,83 @@ class PayrollModuleTest extends TestCase
         $this->assertSame(600, (int) $row['total_minutes']);
         $this->assertSame(250000, (int) $row['income']);
         $this->assertNotSame(275000, (int) $row['income']);
+    }
+
+    public function test_partial_pay_does_not_freeze_income_when_more_attendance_added(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $day1 = now()->startOfMonth()->toDateString();
+        $day2 = now()->startOfMonth()->addDay()->toDateString();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Không khóa lương',
+            'email' => 'partial-live@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+            'salary_type' => 'hourly',
+            'salary_amount' => 25000,
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $day1,
+            'check_in_time' => '08:00',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $day1,
+            'check_out_time' => '16:00',
+        ])->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $firstIncome = (int) round((25000 * 480) / 60);
+        $this->withToken($ctx['token'])->postJson('/api/payrolls/pay', [
+            'year' => $year,
+            'month' => $month,
+            'employee_id' => $employee['id'],
+            'amount' => 100000,
+            'method' => 'cash',
+            'content' => 'Ứng lương',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.entry.net', $firstIncome)
+            ->assertJsonPath('data.entry.paid_amount', 100000)
+            ->assertJsonPath('data.entry.status', 'partial');
+        $this->app['auth']->forgetGuards();
+
+        $this->travel(1)->seconds();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $day2,
+            'check_in_time' => '08:00',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $day2,
+            'check_out_time' => '16:00',
+        ])->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $liveIncome = (int) round((25000 * 960) / 60);
+        $list = $this->withToken($ctx['token'])
+            ->getJson("/api/payrolls?year={$year}&month={$month}")
+            ->assertOk()
+            ->json();
+        $row = collect($list['data'])->firstWhere('id', $employee['id']);
+        $this->assertNotNull($row);
+        $this->assertSame(960, (int) $row['total_minutes']);
+        $this->assertSame($liveIncome, (int) $row['income']);
+        $this->assertSame($liveIncome, (int) $row['net']);
+        $this->assertSame(100000, (int) $row['paid_amount']);
+        $this->assertSame($liveIncome - 100000, (int) $row['remaining']);
+        $this->assertSame('partial', $row['status']);
     }
 }

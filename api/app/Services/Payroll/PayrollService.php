@@ -301,9 +301,9 @@ class PayrollService
                 'month' => $month,
             ]);
 
-            if (! $entry->exists || (int) $entry->net === 0) {
+            if (! $entry->exists || $entry->status !== PayrollEntry::STATUS_PAID) {
                 $entry->fill([
-                    'status' => PayrollEntry::STATUS_PENDING,
+                    'status' => $entry->status ?: PayrollEntry::STATUS_PENDING,
                     'total_minutes' => $computed['total_minutes'],
                     'income' => $computed['income'],
                     'deductions' => $computed['deductions'],
@@ -907,7 +907,7 @@ class PayrollService
         $rawIncome = "case when ({$incomeMinutes}) <= 0 then 0 when employees.salary_type = 'hourly' then {$hourlyIncome} else {$cappedMonthly} end";
         $dailyRate = "case when employees.salary_type = 'hourly' then round(({$amount} * 480.0) / 60.0) else {$amount} / 26.0 end";
         $rawDeductions = "({$unpaidDays}) * ({$dailyRate})";
-        $frozen = "pe.status in ('paid', 'partial') and coalesce(pe.net, 0) > 0";
+        $frozen = "pe.status = 'paid' and coalesce(pe.net, 0) > 0";
         $income = "case when {$frozen} then pe.income else {$rawIncome} end";
         $deductions = "case when {$frozen} then pe.deductions else {$rawDeductions} end";
         $net = "case when {$frozen} then pe.net else case when ({$rawIncome}) - ({$rawDeductions}) > 0 then ({$rawIncome}) - ({$rawDeductions}) else 0 end end";
@@ -997,10 +997,7 @@ class PayrollService
         // Payroll actual minutes = attendance only (leave/assignment never count as income time).
         $totalMinutes = $workedMinutes;
 
-        $frozen = $entry && in_array($entry->status, [
-            PayrollEntry::STATUS_PAID,
-            PayrollEntry::STATUS_PARTIAL,
-        ], true);
+        $frozen = $entry && $entry->status === PayrollEntry::STATUS_PAID;
 
         if ($frozen && (int) $entry->net > 0) {
             $income = (int) $entry->income;
