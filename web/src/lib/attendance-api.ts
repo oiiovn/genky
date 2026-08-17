@@ -231,6 +231,7 @@ export type StaffCheckStatus = {
     check_in_radius_meters: number;
   };
   qr_enabled: boolean;
+  allow_staff_app: boolean;
   allow_check_in: boolean;
   allow_check_out: boolean;
   valid_from: string | null;

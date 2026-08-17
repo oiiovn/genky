@@ -134,6 +134,7 @@ export default function AttendanceQrPage() {
       const saved = await updateQrSettings({
         branch_id: updated.branch_id,
         enabled: next,
+        allow_staff_app: updated.allow_staff_app,
         rotate_seconds: updated.rotate_seconds,
         valid_from: updated.valid_from,
         valid_to: updated.valid_to,
@@ -152,6 +153,37 @@ export default function AttendanceQrPage() {
     }
   }
 
+  async function onToggleStaffApp(next: boolean) {
+    if (!draft) return;
+    const updated = { ...draft, allow_staff_app: next };
+    setDraft(updated);
+    setSaving(true);
+    try {
+      const saved = await updateQrSettings({
+        branch_id: updated.branch_id,
+        enabled: updated.enabled,
+        allow_staff_app: next,
+        rotate_seconds: updated.rotate_seconds,
+        valid_from: updated.valid_from,
+        valid_to: updated.valid_to,
+        allow_check_in: updated.allow_check_in,
+        allow_check_out: updated.allow_check_out,
+      });
+      setSettings(saved);
+      setDraft(saved);
+      showToast(
+        next
+          ? `Đã bật Check-in trên app · ${saved.branch?.name ?? "chi nhánh"}`
+          : `Đã tắt Check-in trên app · ${saved.branch?.name ?? "chi nhánh"} — nhân viên quét QR`,
+      );
+    } catch (err) {
+      setDraft(settings);
+      showToast(err instanceof Error ? err.message : "Không cập nhật được.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onSaveSettings() {
     if (!draft) return;
     setSaving(true);
@@ -160,6 +192,7 @@ export default function AttendanceQrPage() {
       const saved = await updateQrSettings({
         branch_id: draft.branch_id,
         enabled: draft.enabled,
+        allow_staff_app: draft.allow_staff_app,
         rotate_seconds: draft.rotate_seconds,
         valid_from: draft.valid_from,
         valid_to: draft.valid_to,
@@ -197,31 +230,65 @@ export default function AttendanceQrPage() {
                 Quét QR để chấm công Check-in / Check-out
               </p>
             </div>
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-              <div>
-                <p className="text-sm font-semibold text-slate-800">
-                  Hiển thị QR chấm công
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Tài khoản của bạn được cấp quyền xem và chấm công
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={draft?.enabled ?? false}
-                disabled={!draft || saving}
-                onClick={() => void onToggleEnabled(!(draft?.enabled ?? false))}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                  draft?.enabled ? "bg-indigo-500" : "bg-slate-200"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
-                    draft?.enabled ? "left-[22px]" : "left-0.5"
+            <div className="flex flex-wrap items-stretch gap-2">
+              <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">
+                    Hiển thị QR chấm công
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {draft?.branch?.name
+                      ? `Chi nhánh ${draft.branch.name}`
+                      : "Chỉ điều khiển mã QR"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft?.enabled ?? false}
+                  disabled={!draft || saving}
+                  onClick={() => void onToggleEnabled(!(draft?.enabled ?? false))}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                    draft?.enabled ? "bg-indigo-500" : "bg-slate-200"
                   }`}
-                />
-              </button>
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
+                      draft?.enabled ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">
+                    Check-in trên app
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {draft?.branch?.name
+                      ? `Bật nút Check-in cho ${draft.branch.name}`
+                      : "Bật = nút trên app; tắt = chỉ quét QR"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draft?.allow_staff_app ?? false}
+                  disabled={!draft || saving}
+                  onClick={() =>
+                    void onToggleStaffApp(!(draft?.allow_staff_app ?? false))
+                  }
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                    draft?.allow_staff_app ? "bg-emerald-500" : "bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
+                      draft?.allow_staff_app ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

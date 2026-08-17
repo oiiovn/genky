@@ -437,11 +437,13 @@ class AttendanceModuleTest extends TestCase
             ->getJson('/api/attendances/staff-check?branch_id='.$ctx['branch_id'])
             ->assertOk()
             ->assertJsonPath('data.qr_enabled', true)
-            ->assertJsonPath('data.today.can_check_in', true)
+            ->assertJsonPath('data.allow_staff_app', false)
+            ->assertJsonPath('data.today.can_check_in', false)
             ->assertJsonStructure([
                 'data' => [
                     'employee_id',
                     'qr_enabled',
+                    'allow_staff_app',
                     'allow_check_in',
                     'allow_check_out',
                     'geofence' => ['required', 'radius_meters'],
@@ -452,5 +454,45 @@ class AttendanceModuleTest extends TestCase
                     ],
                 ],
             ]);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->putJson('/api/attendances/qr/settings', [
+            'branch_id' => $ctx['branch_id'],
+            'enabled' => true,
+            'allow_staff_app' => true,
+            'rotate_seconds' => 30,
+            'valid_from' => '00:00',
+            'valid_to' => '23:59',
+            'allow_check_in' => true,
+            'allow_check_out' => true,
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)
+            ->getJson('/api/attendances/staff-check?branch_id='.$ctx['branch_id'])
+            ->assertOk()
+            ->assertJsonPath('data.allow_staff_app', true)
+            ->assertJsonPath('data.today.can_check_in', true);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($ctx['token'])->putJson('/api/attendances/qr/settings', [
+            'branch_id' => $ctx['branch_id'],
+            'enabled' => true,
+            'allow_staff_app' => false,
+            'rotate_seconds' => 30,
+            'valid_from' => '00:00',
+            'valid_to' => '23:59',
+            'allow_check_in' => true,
+            'allow_check_out' => true,
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'source' => 'staff_app',
+            'latitude' => 10.7769,
+            'longitude' => 106.7009,
+        ])->assertStatus(422);
     }
 }

@@ -42,6 +42,7 @@ class AttendanceQrService
 
         $setting->fill([
             'enabled' => (bool) ($data['enabled'] ?? $setting->enabled),
+            'allow_staff_app' => (bool) ($data['allow_staff_app'] ?? $setting->allow_staff_app),
             'rotate_seconds' => $rotate,
             'valid_from' => $data['valid_from'] ?? $setting->valid_from,
             'valid_to' => $data['valid_to'] ?? $setting->valid_to,
@@ -233,6 +234,7 @@ class AttendanceQrService
             ],
             [
                 'enabled' => true,
+                'allow_staff_app' => false,
                 'rotate_seconds' => 30,
                 'valid_from' => '00:00',
                 'valid_to' => '23:59',
@@ -277,6 +279,7 @@ class AttendanceQrService
         return [
             'id' => $setting->id,
             'enabled' => $setting->enabled,
+            'allow_staff_app' => (bool) $setting->allow_staff_app,
             'rotate_seconds' => $setting->rotate_seconds,
             'valid_from' => $setting->valid_from,
             'valid_to' => $setting->valid_to,

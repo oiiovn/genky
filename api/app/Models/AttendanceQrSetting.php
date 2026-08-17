@@ -14,6 +14,7 @@ class AttendanceQrSetting extends Model
         'organization_id',
         'branch_id',
         'enabled',
+        'allow_staff_app',
         'rotate_seconds',
         'valid_from',
         'valid_to',
@@ -25,6 +26,7 @@ class AttendanceQrSetting extends Model
     {
         return [
             'enabled' => 'boolean',
+            'allow_staff_app' => 'boolean',
             'rotate_seconds' => 'integer',
             'allow_check_in' => 'boolean',
             'allow_check_out' => 'boolean',

@@ -143,8 +143,8 @@ export default function StaffAttendancePage() {
   const showCheckOut =
     isToday &&
     (Boolean(today?.can_check_out) ||
-      (Boolean(check?.allow_check_out) &&
-        Boolean(check?.qr_enabled) &&
+      (Boolean(check?.allow_staff_app) &&
+        Boolean(check?.allow_check_out) &&
         today?.ui_status === "working" &&
         waitLeft > 0));
 

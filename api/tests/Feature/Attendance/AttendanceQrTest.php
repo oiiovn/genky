@@ -54,6 +54,7 @@ class AttendanceQrTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.branch_id', $ctx['branch_id'])
             ->assertJsonPath('data.enabled', true)
+            ->assertJsonPath('data.allow_staff_app', false)
             ->assertJsonPath('data.rotate_seconds', 30)
             ->assertJsonPath('data.allow_check_in', true);
     }
@@ -66,6 +67,7 @@ class AttendanceQrTest extends TestCase
             ->putJson('/api/attendances/qr/settings', [
                 'branch_id' => $ctx['branch_id'],
                 'enabled' => true,
+                'allow_staff_app' => true,
                 'rotate_seconds' => 45,
                 'valid_from' => '06:00',
                 'valid_to' => '22:00',
@@ -74,6 +76,7 @@ class AttendanceQrTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.rotate_seconds', 45)
+            ->assertJsonPath('data.allow_staff_app', true)
             ->assertJsonPath('data.allow_check_out', false);
 
         $this->app['auth']->forgetGuards();

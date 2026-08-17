@@ -143,8 +143,8 @@ export default function StaffHomePage() {
   const showCheckIn = Boolean(today?.can_check_in);
   const showCheckOut =
     Boolean(today?.can_check_out) ||
-    (Boolean(check?.allow_check_out) &&
-      Boolean(check?.qr_enabled) &&
+    (Boolean(check?.allow_staff_app) &&
+      Boolean(check?.allow_check_out) &&
       today?.ui_status === "working" &&
       waitLeft > 0);
 
@@ -226,9 +226,11 @@ export default function StaffHomePage() {
               </button>
             ) : null}
           </div>
-        ) : check && !check.qr_enabled ? (
+        ) : check && !check.allow_staff_app ? (
           <p className="mt-4 text-xs text-slate-400">
-            Chi nhánh chưa bật chấm công app. Dùng quét QR khi chủ mở cấu hình.
+            Chủ quán chưa bật Check-in trên app cho{" "}
+            <span className="text-slate-300">{check.branch.name}</span>. Hãy quét
+            mã QR để chấm công.
           </p>
         ) : null}
 

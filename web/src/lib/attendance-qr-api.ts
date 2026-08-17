@@ -4,6 +4,7 @@ import { apiUrl } from "@/lib/api-base";
 export type QrSettings = {
   id: number;
   enabled: boolean;
+  allow_staff_app: boolean;
   rotate_seconds: number;
   valid_from: string;
   valid_to: string;
@@ -88,6 +89,7 @@ export async function fetchQrSettings(branchId?: number): Promise<QrSettings> {
 export async function updateQrSettings(payload: {
   branch_id: number;
   enabled: boolean;
+  allow_staff_app?: boolean;
   rotate_seconds: number;
   valid_from: string;
   valid_to: string;

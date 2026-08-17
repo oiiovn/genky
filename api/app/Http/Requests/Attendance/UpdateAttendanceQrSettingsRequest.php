@@ -18,6 +18,7 @@ class UpdateAttendanceQrSettingsRequest extends FormRequest
         return [
             'branch_id' => ['required', 'integer', 'exists:branches,id'],
             'enabled' => ['sometimes', 'boolean'],
+            'allow_staff_app' => ['sometimes', 'boolean'],
             'rotate_seconds' => ['required', 'integer', Rule::in(AttendanceQrService::ROTATE_OPTIONS)],
             'valid_from' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'valid_to' => ['required', 'string', 'regex:/^\d{2}:\d{2}$/'],

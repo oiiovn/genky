@@ -165,6 +165,9 @@ export function QrSettingsPanel({
               Check-out (Ra ca)
             </label>
           </div>
+          <p className="mt-1.5 text-xs text-slate-400">
+            Áp dụng cho cả quét QR và nút trên app (khi đã bật)
+          </p>
         </div>
 
         <button

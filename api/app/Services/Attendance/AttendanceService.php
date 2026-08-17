@@ -347,6 +347,7 @@ class AttendanceService
             ],
             [
                 'enabled' => true,
+                'allow_staff_app' => false,
                 'rotate_seconds' => 30,
                 'valid_from' => '00:00',
                 'valid_to' => '23:59',
@@ -364,7 +365,7 @@ class AttendanceService
             ->first();
 
         $withinHours = $this->qrWithinHours($setting, $now);
-        $staffButtonsEnabled = (bool) $setting->enabled && $withinHours;
+        $staffButtonsEnabled = (bool) $setting->allow_staff_app && $withinHours;
         $hasCoords = $branch->latitude !== null && $branch->longitude !== null;
         $checkedIn = (bool) $log?->check_in_at;
         $checkedOut = (bool) $log?->check_out_at;
@@ -400,6 +401,7 @@ class AttendanceService
                 'check_in_radius_meters' => (int) ($branch->check_in_radius_meters ?: 100),
             ],
             'qr_enabled' => (bool) $setting->enabled,
+            'allow_staff_app' => (bool) $setting->allow_staff_app,
             'allow_check_in' => (bool) $setting->allow_check_in,
             'allow_check_out' => (bool) $setting->allow_check_out,
             'valid_from' => $setting->valid_from,
@@ -443,6 +445,11 @@ class AttendanceService
         string $action,
         string $source,
     ): void {
+        // Quét QR tự kiểm tra trong AttendanceQrService — không dùng cờ app.
+        if ($source === 'qr') {
+            return;
+        }
+
         if (! $permission->isEmployeeOnly() && $source !== 'staff_app') {
             return;
         }
@@ -451,9 +458,9 @@ class AttendanceService
             ->where('branch_id', $branchId)
             ->first();
 
-        if (! $setting || ! $setting->enabled) {
+        if (! $setting || ! $setting->allow_staff_app) {
             throw ValidationException::withMessages([
-                'branch_id' => ['Chi nhánh chưa bật chấm công trên app nhân viên (cấu hình QR).'],
+                'branch_id' => ['Chủ quán chưa bật Check-in trên app. Hãy quét mã QR để chấm công.'],
             ]);
         }
 
