@@ -540,12 +540,14 @@ class AttendanceModuleTest extends TestCase
 
         $wage = (int) round((25000 * 612) / 60);
         $this->assertSame($wage, $out['daily_wage']);
+        $this->assertSame(612, $out['total_minutes']);
 
         $this->app['auth']->forgetGuards();
         $this->withToken($ctx['token'])
             ->getJson('/api/attendances?date='.$date)
             ->assertOk()
-            ->assertJsonPath('data.0.daily_wage', $wage);
+            ->assertJsonPath('data.0.daily_wage', $wage)
+            ->assertJsonPath('data.0.total_minutes', 612);
 
         $this->app['auth']->forgetGuards();
         $year = (int) now()->year;
@@ -555,5 +557,84 @@ class AttendanceModuleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.income', $wage)
             ->assertJsonPath('data.0.total_minutes', 612);
+    }
+
+    public function test_old_log_without_shift_id_uses_assignment_to_clip_early_minutes(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $date = now()->toDateString();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Nguyễn Văn An',
+            'email' => 'an-old-shift@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+            'salary_type' => 'hourly',
+            'salary_amount' => 25000,
+            'pay_from_shift_start' => true,
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $date,
+            'check_in_time' => '07:30',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-out', [
+            'employee_id' => $employee['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $date,
+            'check_out_time' => '16:00',
+        ])->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->assertNull(AttendanceLog::query()->where('employee_id', $employee['id'])->value('shift_id'));
+
+        $uncapped = (int) round((25000 * 510) / 60);
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.$date)
+            ->assertOk()
+            ->assertJsonPath('data.0.daily_wage', $uncapped)
+            ->assertJsonPath('data.0.total_minutes', 510);
+        $this->app['auth']->forgetGuards();
+
+        $shift = $this->withToken($ctx['token'])->postJson('/api/shifts', [
+            'name' => 'Ca sáng',
+            'code' => 'OLD08',
+            'start_time' => '08:00',
+            'end_time' => '16:00',
+            'break_time' => 0,
+            'color' => '#22C55E',
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+            'employee_id' => $employee['id'],
+            'shift_id' => $shift['id'],
+            'branch_id' => $ctx['branch_id'],
+            'date' => $date,
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $wage = (int) round((25000 * 480) / 60);
+        $this->withToken($ctx['token'])
+            ->getJson('/api/attendances?date='.$date)
+            ->assertOk()
+            ->assertJsonPath('data.0.shift_id', $shift['id'])
+            ->assertJsonPath('data.0.shift_name', 'Ca sáng')
+            ->assertJsonPath('data.0.total_minutes', 480)
+            ->assertJsonPath('data.0.daily_wage', $wage);
+        $this->app['auth']->forgetGuards();
+
+        $year = (int) now()->year;
+        $month = (int) now()->month;
+        $this->withToken($ctx['token'])
+            ->getJson("/api/payrolls?year={$year}&month={$month}")
+            ->assertOk()
+            ->assertJsonPath('data.0.income', $wage)
+            ->assertJsonPath('data.0.total_minutes', 480);
     }
 }

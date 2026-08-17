@@ -99,11 +99,13 @@ class AttendanceService
             ->orderBy('employee_id')
             ->paginate($perPage, ['*'], 'page', $page);
 
-        $items = collect($paginator->items())->map(function (AttendanceLog $log) use ($branchId) {
+        $logs = collect($paginator->items());
+        $assignedShifts = $this->assignedShiftsForLogs($logs);
+        $items = $logs->map(function (AttendanceLog $log) use ($branchId, $assignedShifts) {
             return $this->buildRowPayload(
                 $log->employee,
                 $log,
-                $log->shift,
+                $this->resolveShiftForLog($log, $assignedShifts),
                 $log->work_date?->toDateString() ?? now()->toDateString(),
                 $branchId
             );
@@ -131,18 +133,21 @@ class AttendanceService
 
         [$start, $end] = $this->parseDateRange($filters);
 
-        return AttendanceLog::query()
+        $logs = AttendanceLog::query()
             ->with(['employee.position', 'employee.branches', 'shift', 'branch'])
             ->where('employee_id', $own->id)
             ->where('work_date', '>=', $start->toDateString())
             ->where('work_date', '<', $end->copy()->addDay()->toDateString())
             ->orderByDesc('work_date')
             ->orderBy('id')
-            ->get()
+            ->get();
+        $assignedShifts = $this->assignedShiftsForLogs($logs);
+
+        return $logs
             ->map(fn (AttendanceLog $log) => $this->buildRowPayload(
                 $log->employee,
                 $log,
-                $log->shift,
+                $this->resolveShiftForLog($log, $assignedShifts),
                 $log->work_date?->toDateString() ?? now()->toDateString()
             ))
             ->values();
@@ -730,12 +735,11 @@ class AttendanceService
     public function payload(AttendanceLog $log): array
     {
         $log->loadMissing(['employee.position', 'shift', 'branch']);
-        $shift = $log->shift;
 
         return $this->buildRowPayload(
             $log->employee,
             $log,
-            $shift,
+            $this->resolveShiftForLog($log),
             $log->work_date?->toDateString() ?? now()->toDateString()
         );
     }
@@ -943,15 +947,95 @@ class AttendanceService
             ->orderBy('employee_id')
             ->get();
 
-        return $this->rosterMemo[$key] = $logs->map(function (AttendanceLog $log) use ($date, $branchId) {
+        $assignedShifts = $this->assignedShiftsForLogs($logs);
+
+        return $this->rosterMemo[$key] = $logs->map(function (AttendanceLog $log) use ($date, $branchId, $assignedShifts) {
             return $this->buildRowPayload(
                 $log->employee,
                 $log,
-                $log->shift,
+                $this->resolveShiftForLog($log, $assignedShifts),
                 $date,
                 $branchId
             );
         })->values();
+    }
+
+    /**
+     * @param  Collection<int, AttendanceLog>  $logs
+     * @return Collection<string, Shift>
+     */
+    protected function assignedShiftsForLogs(Collection $logs): Collection
+    {
+        $need = $logs->filter(fn (AttendanceLog $log) => ! $log->shift);
+        if ($need->isEmpty()) {
+            return collect();
+        }
+
+        $employeeIds = $need->pluck('employee_id')->unique()->values();
+        $dates = $need->map(fn (AttendanceLog $log) => $log->work_date?->toDateString())
+            ->filter()
+            ->unique()
+            ->values();
+
+        $from = $dates->min();
+        $until = Carbon::parse((string) $dates->max())->addDay()->toDateString();
+        $assignments = ShiftAssignment::query()
+            ->with('shift')
+            ->whereIn('employee_id', $employeeIds)
+            ->where('date', '>=', $from)
+            ->where('date', '<', $until)
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->get();
+
+        $byKey = collect();
+        foreach ($assignments as $assignment) {
+            if (! $assignment->shift) {
+                continue;
+            }
+            $date = $assignment->date?->toDateString();
+            $branchKey = $assignment->employee_id.'|'.$date.'|'.$assignment->branch_id;
+            $dateKey = $assignment->employee_id.'|'.$date;
+            if (! $byKey->has($branchKey)) {
+                $byKey[$branchKey] = $assignment->shift;
+            }
+            if (! $byKey->has($dateKey)) {
+                $byKey[$dateKey] = $assignment->shift;
+            }
+        }
+
+        return $byKey;
+    }
+
+    /**
+     * @param  Collection<string, Shift>|null  $assignedShifts
+     */
+    protected function resolveShiftForLog(AttendanceLog $log, ?Collection $assignedShifts = null): ?Shift
+    {
+        if ($log->shift) {
+            return $log->shift;
+        }
+
+        $date = $log->work_date?->toDateString();
+        if (! $date) {
+            return null;
+        }
+
+        if ($assignedShifts !== null) {
+            return $assignedShifts->get($log->employee_id.'|'.$date.'|'.$log->branch_id)
+                ?? $assignedShifts->get($log->employee_id.'|'.$date);
+        }
+
+        $assignments = ShiftAssignment::query()
+            ->with('shift')
+            ->where('employee_id', $log->employee_id)
+            ->whereDate('date', $date)
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->get();
+
+        return $assignments->first(
+            fn (ShiftAssignment $assignment) => (int) $assignment->branch_id === (int) $log->branch_id && $assignment->shift
+        )?->shift
+            ?? $assignments->first(fn (ShiftAssignment $assignment) => $assignment->shift)?->shift;
     }
 
     protected function buildRowPayload(
@@ -1004,6 +1088,7 @@ class AttendanceService
         $dailyWage = null;
         if ($log && $log->check_in_at && $log->check_out_at && ! $log->isLeave() && $log->status !== AttendanceLog::STATUS_ABSENT) {
             $payable = DailyWage::payableMinutes($log, $shift, (bool) $employee->pay_from_shift_start);
+            $totalMinutes = $payable;
             $dailyWage = DailyWage::amount($employee, $payable);
         }
 
