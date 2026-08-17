@@ -23,7 +23,7 @@ import {
 } from "@/lib/attendance-api";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
-import { currentWeekRange } from "@/lib/timezone";
+import { recentDaysRange } from "@/lib/timezone";
 
 const AttendanceSidePanel = dynamic(
   () =>
@@ -55,9 +55,9 @@ export default function AttendancePage() {
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const week = currentWeekRange();
-  const [dateFrom, setDateFrom] = useState(week.from);
-  const [dateTo, setDateTo] = useState(week.to);
+  const range = recentDaysRange(7);
+  const [dateFrom, setDateFrom] = useState(range.from);
+  const [dateTo, setDateTo] = useState(range.to);
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState<number | "">("");

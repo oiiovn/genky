@@ -86,3 +86,18 @@ export function currentWeekRange(
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
   return { from: isoFromLocalDate(start), to: todayIso(date) };
 }
+
+/** N ngày gần nhất (tính cả hôm nay): từ hôm nay − (days−1) → hôm nay. */
+export function recentDaysRange(
+  days = 7,
+  date: Date = new Date(),
+): { from: string; to: string } {
+  const span = Math.max(1, Math.floor(days));
+  const today = nowInAppTz(date);
+  const start = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - (span - 1),
+  );
+  return { from: isoFromLocalDate(start), to: todayIso(date) };
+}
