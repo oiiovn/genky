@@ -108,3 +108,45 @@ export async function deleteScheduleAssignment(id: number): Promise<void> {
   });
   if (!res.ok) throw new Error(await parseError(res));
 }
+
+export type BulkAssignPayload = {
+  employee_ids: number[];
+  shift_id: number;
+  branch_id: number;
+  date_from: string;
+  date_to: string;
+  weekdays?: number[];
+};
+
+export type CopyWeekPayload = {
+  source_from: string;
+  source_to: string;
+  target_from: string;
+  branch_id?: number;
+};
+
+export async function bulkScheduleAssignments(
+  payload: BulkAssignPayload,
+): Promise<{ created: number; skipped: number }> {
+  const res = await fetch(`${apiUrl()}/shift-assignments/bulk`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = await res.json();
+  return json.data as { created: number; skipped: number };
+}
+
+export async function copyWeekScheduleAssignments(
+  payload: CopyWeekPayload,
+): Promise<{ created: number; skipped: number }> {
+  const res = await fetch(`${apiUrl()}/shift-assignments/copy-week`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = await res.json();
+  return json.data as { created: number; skipped: number };
+}

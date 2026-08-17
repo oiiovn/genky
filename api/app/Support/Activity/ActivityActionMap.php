@@ -88,6 +88,8 @@ class ActivityActionMap
             ['methods' => ['POST'], 'pattern' => '#^shifts/import$#', 'action' => 'create', 'label' => 'Nhập ca làm việc', 'object' => 'Ca làm việc'],
 
             ['methods' => ['POST'], 'pattern' => '#^shift-assignments$#', 'action' => 'create', 'label' => 'Phân ca làm việc', 'object' => 'Lịch làm việc'],
+            ['methods' => ['POST'], 'pattern' => '#^shift-assignments/bulk$#', 'action' => 'create', 'label' => 'Xếp ca hàng loạt', 'object' => 'Lịch làm việc'],
+            ['methods' => ['POST'], 'pattern' => '#^shift-assignments/copy-week$#', 'action' => 'create', 'label' => 'Sao chép lịch tuần', 'object' => 'Lịch làm việc'],
             ['methods' => ['DELETE'], 'pattern' => '#^shift-assignments/\d+$#', 'action' => 'delete', 'label' => 'Xóa phân ca', 'object' => 'Lịch làm việc'],
 
             ['methods' => ['POST'], 'pattern' => '#^attendances/check-in$#', 'action' => 'create', 'label' => 'Chấm công vào', 'object' => 'Chấm công'],

@@ -71,7 +71,7 @@ export function ScheduleSidePanel({
   }[];
 
   const actions = [
-    { id: "template", label: "Tạo lịch theo mẫu", icon: Users },
+    { id: "bulk", label: "Xếp ca hàng loạt", icon: Users },
     { id: "copy", label: "Sao chép lịch", icon: Copy },
     { id: "export", label: "Xuất Excel", icon: FileSpreadsheet },
     { id: "print", label: "In lịch làm việc", icon: Printer },

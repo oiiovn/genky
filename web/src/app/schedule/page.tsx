@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAdminChrome } from "@/components/admin/AdminShell";
+import { ScheduleBulkAssignModal } from "@/components/schedule/ScheduleBulkAssignModal";
+import { ScheduleCopyWeekModal } from "@/components/schedule/ScheduleCopyWeekModal";
 import { AssignShiftModal } from "@/components/schedule/AssignShiftModal";
 import {
   ScheduleAlertDetailPanel,
@@ -88,6 +90,8 @@ export default function SchedulePage() {
   const [dayEmployeeId, setDayEmployeeId] = useState<number | "">("");
   const [alertDetailKind, setAlertDetailKind] =
     useState<ScheduleAlertKind | null>(null);
+  const [copyWeekOpen, setCopyWeekOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   useEffect(() => {
     if (employeeId !== "" && alertDetailKind === "understaffed") {
@@ -112,6 +116,12 @@ export default function SchedulePage() {
       : (weekDays[6]?.iso ?? toIsoDate(addDays(anchor, 6)));
 
   const [appliedDays, setAppliedDays] = useState<WeekDay[]>(weekDays);
+
+  const defaultTargetWeekFrom = useMemo(() => {
+    const start = new Date(`${rangeFrom}T12:00:00`);
+    start.setDate(start.getDate() + 7);
+    return toIsoDate(start);
+  }, [rangeFrom]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -607,6 +617,18 @@ export default function SchedulePage() {
                 window.print();
                 return;
               }
+              if (action === "copy") {
+                if (view !== "week") {
+                  showToast("Chuyển sang xem theo tuần để sao chép lịch.");
+                  return;
+                }
+                setCopyWeekOpen(true);
+                return;
+              }
+              if (action === "bulk") {
+                setBulkOpen(true);
+                return;
+              }
               showToast("Tính năng sẽ sớm có sẵn");
             }}
             onViewAlertDetail={(kind) => {
@@ -673,6 +695,36 @@ export default function SchedulePage() {
           onRemove={(a) => setPendingRemove(a)}
         />
       ) : null}
+
+      <ScheduleCopyWeekModal
+        open={copyWeekOpen}
+        sourceFrom={rangeFrom}
+        sourceTo={rangeTo}
+        defaultTargetFrom={defaultTargetWeekFrom}
+        branchId={branchId}
+        onClose={() => setCopyWeekOpen(false)}
+        onDone={(msg) => {
+          showToast(msg);
+          void loadAssignments();
+        }}
+      />
+
+      <ScheduleBulkAssignModal
+        open={bulkOpen}
+        employees={filteredEmployees}
+        branches={branches}
+        shifts={shifts}
+        defaultBranchId={
+          branchId || branches[0]?.id || ""
+        }
+        defaultDateFrom={rangeFrom < todayIso() ? todayIso() : rangeFrom}
+        defaultDateTo={rangeTo}
+        onClose={() => setBulkOpen(false)}
+        onDone={(msg) => {
+          showToast(msg);
+          void loadAssignments();
+        }}
+      />
 
       <AssignShiftModal
         key={`${assignEmployee?.id ?? "x"}-${assignDate ?? "d"}`}

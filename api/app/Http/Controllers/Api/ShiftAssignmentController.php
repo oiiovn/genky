@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Shift\BulkShiftAssignmentRequest;
+use App\Http\Requests\Shift\CopyWeekShiftAssignmentRequest;
 use App\Http\Requests\Shift\StoreShiftAssignmentRequest;
 use App\Services\Shift\ShiftAssignmentService;
 use Illuminate\Http\JsonResponse;
@@ -37,6 +39,24 @@ class ShiftAssignmentController extends Controller
         return response()->json([
             'data' => $this->assignments->payload($assignment),
         ], 201);
+    }
+
+    public function bulk(BulkShiftAssignmentRequest $request): JsonResponse
+    {
+        $result = $this->assignments->bulkAssign($request->validated());
+
+        return response()->json([
+            'data' => $result,
+        ]);
+    }
+
+    public function copyWeek(CopyWeekShiftAssignmentRequest $request): JsonResponse
+    {
+        $result = $this->assignments->copyWeek($request->validated());
+
+        return response()->json([
+            'data' => $result,
+        ]);
     }
 
     public function destroy(int $assignment): JsonResponse

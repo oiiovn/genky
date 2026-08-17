@@ -11,6 +11,7 @@ use App\Support\Authorization\ShiftPermission;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ShiftAssignmentService
@@ -117,6 +118,153 @@ class ShiftAssignmentService
             'status' => ShiftAssignment::STATUS_ASSIGNED,
             'note' => $data['note'] ?? null,
         ])->load(['employee', 'shift', 'branch']);
+    }
+
+    /**
+     * @return array{created: int, skipped: int}
+     */
+    public function bulkAssign(array $data): array
+    {
+        $permission = ShiftPermission::for();
+        $permission->assertCanManage();
+
+        $branchId = (int) $data['branch_id'];
+        $permission->assertCanAccessBranch($branchId);
+
+        $employeeIds = collect($data['employee_ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($employeeIds === []) {
+            throw ValidationException::withMessages([
+                'employee_ids' => ['Chọn ít nhất một nhân viên.'],
+            ]);
+        }
+
+        $from = Carbon::parse((string) $data['date_from'], config('app.timezone'))->startOfDay();
+        $to = Carbon::parse((string) $data['date_to'], config('app.timezone'))->startOfDay();
+        if ($to->diffInDays($from) > 62) {
+            throw ValidationException::withMessages([
+                'date_to' => ['Khoảng ngày tối đa 62 ngày.'],
+            ]);
+        }
+
+        /** @var list<int>|null $weekdays */
+        $weekdays = isset($data['weekdays']) && is_array($data['weekdays'])
+            ? array_values(array_unique(array_map('intval', $data['weekdays'])))
+            : null;
+
+        $created = 0;
+        $skipped = 0;
+
+        DB::transaction(function () use ($data, $employeeIds, $from, $to, $weekdays, &$created, &$skipped) {
+            for ($date = $from->copy(); $date->lte($to); $date->addDay()) {
+                if ($weekdays !== null && ! in_array($date->dayOfWeekIso, $weekdays, true)) {
+                    continue;
+                }
+
+                foreach ($employeeIds as $employeeId) {
+                    if ($this->tryAssign([
+                        'employee_id' => $employeeId,
+                        'shift_id' => (int) $data['shift_id'],
+                        'branch_id' => (int) $data['branch_id'],
+                        'date' => $date->toDateString(),
+                        'note' => $data['note'] ?? null,
+                    ])) {
+                        $created++;
+                    } else {
+                        $skipped++;
+                    }
+                }
+            }
+        });
+
+        return ['created' => $created, 'skipped' => $skipped];
+    }
+
+    /**
+     * @return array{created: int, skipped: int}
+     */
+    public function copyWeek(array $data): array
+    {
+        $permission = ShiftPermission::for();
+        $permission->assertCanManage();
+
+        $sourceFrom = Carbon::parse((string) $data['source_from'], config('app.timezone'))->startOfDay();
+        $sourceTo = Carbon::parse((string) $data['source_to'], config('app.timezone'))->startOfDay();
+        $targetFrom = Carbon::parse((string) $data['target_from'], config('app.timezone'))->startOfDay();
+
+        if ($sourceTo->lt($sourceFrom) || $sourceFrom->diffInDays($sourceTo) > 6) {
+            throw ValidationException::withMessages([
+                'source_to' => ['Chọn tối đa 7 ngày nguồn (một tuần).'],
+            ]);
+        }
+
+        $this->assertNotInPast($targetFrom);
+
+        $offsetDays = $sourceFrom->diffInDays($targetFrom, false);
+        $branchFilter = ! empty($data['branch_id']) ? (int) $data['branch_id'] : null;
+        if ($branchFilter) {
+            $permission->assertCanAccessBranch($branchFilter);
+        }
+
+        $query = ShiftAssignment::query()
+            ->with(['employee', 'shift', 'branch'])
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->whereDate('date', '>=', $sourceFrom->toDateString())
+            ->whereDate('date', '<=', $sourceTo->toDateString());
+
+        if ($branchFilter) {
+            $query->where('branch_id', $branchFilter);
+        }
+
+        if ($permission->isManager()) {
+            $query->whereIn('branch_id', $permission->managedBranchIds());
+        }
+
+        $sourceRows = $query->get();
+
+        $created = 0;
+        $skipped = 0;
+
+        DB::transaction(function () use ($sourceRows, $offsetDays, &$created, &$skipped) {
+            foreach ($sourceRows as $row) {
+                $sourceDate = Carbon::parse($row->date?->toDateString() ?? $row->date, config('app.timezone'))
+                    ->startOfDay();
+                $targetDate = $sourceDate->copy()->addDays($offsetDays);
+
+                if ($this->tryAssign([
+                    'employee_id' => (int) $row->employee_id,
+                    'shift_id' => (int) $row->shift_id,
+                    'branch_id' => (int) $row->branch_id,
+                    'date' => $targetDate->toDateString(),
+                    'note' => $row->note,
+                ])) {
+                    $created++;
+                } else {
+                    $skipped++;
+                }
+            }
+        });
+
+        return ['created' => $created, 'skipped' => $skipped];
+    }
+
+    /**
+     * @param  array{employee_id: int, shift_id: int, branch_id: int, date: string, note?: string|null}  $data
+     */
+    protected function tryAssign(array $data): bool
+    {
+        try {
+            $this->assign($data);
+
+            return true;
+        } catch (ValidationException) {
+            return false;
+        }
     }
 
     public function unassign(ShiftAssignment $assignment): void

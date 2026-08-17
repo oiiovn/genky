@@ -163,6 +163,8 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
         Route::delete('shifts/{shift}', [ShiftController::class, 'destroy']);
 
         Route::get('shift-assignments', [ShiftAssignmentController::class, 'index']);
+        Route::post('shift-assignments/bulk', [ShiftAssignmentController::class, 'bulk']);
+        Route::post('shift-assignments/copy-week', [ShiftAssignmentController::class, 'copyWeek']);
         Route::post('shift-assignments', [ShiftAssignmentController::class, 'store']);
         Route::delete('shift-assignments/{assignment}', [ShiftAssignmentController::class, 'destroy']);
     });
