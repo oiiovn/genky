@@ -147,7 +147,7 @@ class MarketingReviewCampaignService
                 'description' => 'Chiến dịch mặc định dài hạn — tự tạo để thêm đánh giá.',
                 'status' => MarketingReviewCampaign::STATUS_ACTIVE,
                 'start_at' => Carbon::parse('2020-01-01 00:00:00', 'Asia/Ho_Chi_Minh'),
-                'end_at' => Carbon::parse('2099-12-31 23:59:59', 'Asia/Ho_Chi_Minh'),
+                'end_at' => Carbon::parse('2037-12-31 23:59:59', 'Asia/Ho_Chi_Minh'),
                 'min_rating' => 1,
                 'auto_verify' => false,
                 'auto_issue_reward' => false,

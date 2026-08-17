@@ -59,6 +59,7 @@ class MarketingDefaultCampaignTest extends TestCase
 
         $this->assertNotNull($meta['campaign']);
         $this->assertSame('Mặc định', $meta['campaign']['name']);
+        $this->assertStringContainsString('2037-12-31', (string) $meta['campaign']['end_at']);
         $this->assertNotEmpty($meta['channels']);
         $this->assertNotEmpty($meta['branches']);
 
