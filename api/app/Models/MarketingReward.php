@@ -19,6 +19,7 @@ class MarketingReward extends Model
         'image',
         'sku',
         'value',
+        'display_value',
         'enabled',
         'sort_order',
     ];
@@ -27,9 +28,18 @@ class MarketingReward extends Model
     {
         return [
             'value' => 'integer',
+            'display_value' => 'integer',
             'enabled' => 'boolean',
             'sort_order' => 'integer',
         ];
+    }
+
+    /** Trị giá hiển thị cho khách khi quay. */
+    public function customerDisplayValue(): int
+    {
+        $display = (int) $this->display_value;
+
+        return $display > 0 ? $display : (int) $this->value;
     }
 
     public function campaignLinks(): HasMany

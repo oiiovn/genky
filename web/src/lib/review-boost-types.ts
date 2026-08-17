@@ -106,6 +106,7 @@ export type ReviewRedeemRow = {
   customerInitial: string;
   channel: ReviewChannel;
   branch: string;
+  branchId?: number | null;
   giftName: string;
   giftEmoji: string;
   giftImageUrl?: string | null;

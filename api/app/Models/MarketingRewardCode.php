@@ -28,9 +28,12 @@ class MarketingRewardCode extends Model
         'organization_id',
         'campaign_id',
         'review_id',
+        'order_code',
         'reward_id',
         'code',
         'status',
+        'provisional',
+        'reconcile_at',
         'issued_at',
         'expires_at',
         'redeemed_at',
@@ -44,6 +47,8 @@ class MarketingRewardCode extends Model
             'issued_at' => 'datetime',
             'expires_at' => 'datetime',
             'redeemed_at' => 'datetime',
+            'reconcile_at' => 'datetime',
+            'provisional' => 'boolean',
         ];
     }
 

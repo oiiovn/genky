@@ -17,6 +17,7 @@ import {
   Settings2,
   Trash2,
   Type,
+  Volume2,
   X,
 } from "lucide-react";
 import type { Branch } from "@/lib/api";
@@ -29,12 +30,17 @@ import {
   ensureMarketingBranchQrs,
   fetchMarketingBranchQrs,
   fetchMarketingChannels,
+  fetchMarketingLandingAudio,
+  fetchMarketingRewardCodeSettings,
   fetchMarketingRewards,
+  updateMarketingRewardCodeSettings,
   reorderMarketingChannels,
   seedMarketingChannelDefaults,
   seedMarketingRewardDefaults,
   updateMarketingChannel,
   updateMarketingReward,
+  uploadMarketingLandingAudio,
+  clearMarketingLandingAudio,
   uploadMarketingRewardImage,
   type MarketingBranchQrDto,
   type MarketingChannelDto,
@@ -45,11 +51,13 @@ import {
   loadReviewBoostSettings,
   previewGiftCode,
   saveReviewBoostSettings,
+  writeReviewLandingPreviewDraft,
   type ReviewBoostFullSettings,
   type ReviewChannelSetting,
   type ReviewCodeFormatId,
   type ReviewExpireMode,
   type ReviewGiftItemSetting,
+  type ReviewLandingCopy,
 } from "@/lib/review-boost-settings";
 
 function channelFromApi(row: MarketingChannelDto): ReviewChannelSetting {
@@ -70,6 +78,7 @@ function giftFromApi(row: MarketingRewardDto): ReviewGiftItemSetting {
     name: row.name,
     imageUrl: row.image_url,
     value: row.value,
+    displayValue: row.display_value > 0 ? row.display_value : row.value,
     enabled: row.enabled,
     sort_order: row.sort_order,
   };
@@ -156,6 +165,47 @@ function Card({
     </section>
   );
 }
+
+function StyleText({
+  label,
+  value,
+  onChange,
+  rows,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  const cls =
+    "mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-blue-400";
+  return (
+    <label className="block text-xs font-medium text-slate-600">
+      {label}
+      {rows ? (
+        <textarea
+          value={value}
+          rows={rows}
+          onChange={(e) => onChange(e.target.value)}
+          className={cls}
+        />
+      ) : (
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={cls}
+        />
+      )}
+    </label>
+  );
+}
+
+const LANDING_FONTS: { id: string; label: string }[] = [
+  { id: '"Be Vietnam Pro", "Inter", sans-serif', label: "Be Vietnam Pro" },
+  { id: "Nunito, sans-serif", label: "Nunito" },
+  { id: "Inter, sans-serif", label: "Inter" },
+  { id: "system-ui, sans-serif", label: "Hệ thống" },
+];
 
 function SettingsQrPreview({
   value,
@@ -253,6 +303,7 @@ export function ReviewBoostSettingsPanel({
   const [addGiftOpen, setAddGiftOpen] = useState(false);
   const [addGiftName, setAddGiftName] = useState("");
   const [addGiftValue, setAddGiftValue] = useState("15000");
+  const [addGiftDisplayValue, setAddGiftDisplayValue] = useState("15000");
   const [addGiftFile, setAddGiftFile] = useState<File | null>(null);
   const [addGiftPreview, setAddGiftPreview] = useState<string | null>(null);
   const [addGiftError, setAddGiftError] = useState<string | null>(null);
@@ -263,6 +314,7 @@ export function ReviewBoostSettingsPanel({
     null,
   );
   const [copiedQrId, setCopiedQrId] = useState<number | null>(null);
+  const [audioBusy, setAudioBusy] = useState(false);
 
   useEffect(() => {
     setSettings(loadReviewBoostSettings(orgId));
@@ -360,6 +412,62 @@ export function ReviewBoostSettingsPanel({
     return () => ac.abort();
   }, [orgId, branches.length]);
 
+  useEffect(() => {
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const audio = await fetchMarketingLandingAudio(ac.signal);
+        if (ac.signal.aborted) return;
+        setSettings((prev) => ({
+          ...prev,
+          landing: {
+            ...prev.landing,
+            guideAudioUrl: audio.audio_url,
+            guideAudioName: audio.file_name ?? "",
+          },
+        }));
+      } catch {
+        /* giữ bản local nếu API lỗi */
+      }
+    })();
+    return () => ac.abort();
+  }, [orgId]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const cfg = await fetchMarketingRewardCodeSettings(ac.signal);
+        if (ac.signal.aborted) return;
+        const type = String(cfg.expiry_type || "DAYS").toUpperCase();
+        setSettings((prev) => ({
+          ...prev,
+          codePrefix: cfg.prefix || prev.codePrefix,
+          codeLength: cfg.length || prev.codeLength,
+          useLetters: cfg.use_letters,
+          useDigits: cfg.use_numbers,
+          excludeAmbiguous:
+            cfg.exclude_zero ||
+            cfg.exclude_o ||
+            cfg.exclude_i ||
+            cfg.exclude_one,
+          expireMode:
+            type === "NEVER"
+              ? "never"
+              : type === "DATE" || type === "FIXED_DATE"
+                ? "fixed_date"
+                : "after_days",
+          expireDays: cfg.expiry_days || prev.expireDays,
+          expireFixedDate: cfg.expiry_date || prev.expireFixedDate,
+          rewardBeforeReview: cfg.reward_before_review,
+        }));
+      } catch {
+        /* giữ bản local */
+      }
+    })();
+    return () => ac.abort();
+  }, [orgId]);
+
   const codePreview = useMemo(() => previewGiftCode(settings), [settings]);
   const enabledChannels = settings.channels.filter((c) => c.enabled).length;
   const enabledGifts = settings.gifts.filter((g) => g.enabled).length;
@@ -384,9 +492,18 @@ export function ReviewBoostSettingsPanel({
       null,
     [branchQrs, selectedQrBranchId],
   );
+  const landingPreviewUrl = `/review?preview=1&org=${encodeURIComponent(String(orgId))}`;
+  const landing = settings.landing;
 
   function patch(partial: Partial<ReviewBoostFullSettings>) {
     setSettings((prev) => ({ ...prev, ...partial }));
+  }
+
+  function patchLanding(partial: Partial<ReviewLandingCopy>) {
+    setSettings((prev) => ({
+      ...prev,
+      landing: { ...prev.landing, ...partial },
+    }));
   }
 
   function setChannelsFromApi(rows: MarketingChannelDto[]) {
@@ -546,6 +663,7 @@ export function ReviewBoostSettingsPanel({
   function openAddGiftModal() {
     setAddGiftName("");
     setAddGiftValue("15000");
+    setAddGiftDisplayValue("15000");
     setAddGiftFile(null);
     setAddGiftPreview(null);
     setAddGiftError(null);
@@ -592,6 +710,10 @@ export function ReviewBoostSettingsPanel({
       0,
       Number(String(addGiftValue).replace(/[^\d]/g, "") || 0),
     );
+    const displayValue = Math.max(
+      0,
+      Number(String(addGiftDisplayValue).replace(/[^\d]/g, "") || 0),
+    );
     setGiftBusy(true);
     setAddGiftError(null);
     try {
@@ -600,6 +722,7 @@ export function ReviewBoostSettingsPanel({
       let created = await createMarketingReward({
         name,
         value,
+        display_value: displayValue || value,
         enabled: true,
         sort_order: nextOrder,
       });
@@ -632,6 +755,7 @@ export function ReviewBoostSettingsPanel({
       const updated = await updateMarketingReward(g.id, {
         name: g.name.trim(),
         value: Math.max(0, Math.floor(g.value)),
+        display_value: Math.max(0, Math.floor(g.displayValue || g.value)),
         enabled: g.enabled,
       });
       patchGiftLocal(g.id, giftFromApi(updated));
@@ -705,12 +829,66 @@ export function ReviewBoostSettingsPanel({
     window.setTimeout(() => setToast(null), 2200);
   }
 
-  function save() {
+  async function onGuideAudioSelected(file: File | null) {
+    if (!file) return;
+    setAudioBusy(true);
+    try {
+      const audio = await uploadMarketingLandingAudio(file);
+      patchLanding({
+        guideAudioUrl: audio.audio_url,
+        guideAudioName: audio.file_name ?? file.name,
+      });
+      showToast("Đã tải bản ghi hướng dẫn.");
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Không tải được bản ghi.");
+    } finally {
+      setAudioBusy(false);
+    }
+  }
+
+  async function removeGuideAudio() {
+    setAudioBusy(true);
+    try {
+      await clearMarketingLandingAudio();
+      patchLanding({ guideAudioUrl: null, guideAudioName: "" });
+      showToast("Đã xoá bản ghi hướng dẫn.");
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Không xoá được bản ghi.");
+    } finally {
+      setAudioBusy(false);
+    }
+  }
+
+  async function save() {
     const url = selectedQr?.public_url || settings.qrUrl || settings.reviewUrl;
     saveReviewBoostSettings(orgId, {
       ...settings,
       qrUrl: url || settings.qrUrl,
     });
+    try {
+      await updateMarketingRewardCodeSettings({
+        prefix: settings.codePrefix,
+        length: settings.codeLength,
+        use_letters: settings.useLetters,
+        use_numbers: settings.useDigits,
+        exclude_zero: settings.excludeAmbiguous,
+        exclude_o: settings.excludeAmbiguous,
+        exclude_i: settings.excludeAmbiguous,
+        exclude_one: settings.excludeAmbiguous,
+        expiry_type:
+          settings.expireMode === "never"
+            ? "NEVER"
+            : settings.expireMode === "fixed_date"
+              ? "DATE"
+              : "DAYS",
+        expiry_days: settings.expireDays,
+        expiry_date: settings.expireFixedDate || null,
+        reward_before_review: settings.rewardBeforeReview,
+      });
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : "Không lưu được hạn mã.");
+      return;
+    }
     onSaved?.(url);
     showToast("Đã lưu cài đặt");
   }
@@ -993,6 +1171,7 @@ export function ReviewBoostSettingsPanel({
                   <th className="pb-2 font-semibold">Tên món</th>
                   <th className="pb-2 font-semibold">Ảnh</th>
                   <th className="pb-2 font-semibold">Chi phí</th>
+                  <th className="pb-2 font-semibold">Trị giá</th>
                   <th className="pb-2 font-semibold">TT</th>
                   <th className="pb-2 text-right font-semibold"> </th>
                 </tr>
@@ -1001,7 +1180,7 @@ export function ReviewBoostSettingsPanel({
                 {sortedGifts.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="py-8 text-center text-sm text-slate-400"
                     >
                       Chưa có món. Nhấn “Thêm món”.
@@ -1087,6 +1266,29 @@ export function ReviewBoostSettingsPanel({
                         ) : (
                           <span className="tabular-nums text-slate-700">
                             {formatVnd(g.value)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5">
+                        {editing ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step={1000}
+                            value={g.displayValue ?? g.value}
+                            onChange={(e) =>
+                              patchGiftLocal(g.id, {
+                                displayValue: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                            className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm tabular-nums"
+                          />
+                        ) : (
+                          <span className="tabular-nums text-slate-700">
+                            {formatVnd(g.displayValue || g.value)}
                           </span>
                         )}
                       </td>
@@ -1299,6 +1501,30 @@ export function ReviewBoostSettingsPanel({
           <Note>
             Khách hàng cần đổi quà trước thời hạn để còn hiệu lực.
           </Note>
+          <label
+            className={clsx(
+              "mt-3 flex flex-col gap-1 rounded-xl border px-3 py-3 text-sm",
+              settings.rewardBeforeReview
+                ? "border-blue-500 bg-blue-50/40"
+                : "border-slate-200",
+            )}
+          >
+            <span className="inline-flex items-center gap-2 font-medium text-slate-800">
+              <input
+                type="checkbox"
+                checked={settings.rewardBeforeReview}
+                onChange={(e) =>
+                  patch({ rewardBeforeReview: e.target.checked })
+                }
+                className="accent-blue-600"
+              />
+              Thưởng trước đánh giá
+            </span>
+            <span className="ml-6 text-xs text-slate-500">
+              Khách nhập đúng định dạng mã đơn vẫn được thưởng ngay. Sau 48 giờ
+              hệ thống quét lại: có đánh giá thì giữ, chưa có thì huỷ.
+            </span>
+          </label>
         </Card>
 
         {/* 5 QR theo chi nhánh */}
@@ -1419,11 +1645,11 @@ export function ReviewBoostSettingsPanel({
         <Card
           n={6}
           title="Style trang tặng"
-          subtitle="Tùy chỉnh giao diện trang tặng cho khách hàng"
-          className="lg:col-span-1"
+          subtitle="Tự soạn chữ và xem thử trang công khai cho khách"
+          className="lg:col-span-3"
         >
-          <div className="flex gap-3">
-            <nav className="flex w-24 shrink-0 flex-col gap-1">
+          <div className="flex flex-col gap-4 lg:flex-row">
+            <nav className="flex shrink-0 gap-1 overflow-x-auto lg:w-24 lg:flex-col">
               {styleNav.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -1432,7 +1658,7 @@ export function ReviewBoostSettingsPanel({
                     type="button"
                     onClick={() => setStyleTab(item.id)}
                     className={clsx(
-                      "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium",
+                      "flex min-w-[4.5rem] flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium",
                       styleTab === item.id
                         ? "bg-blue-50 text-blue-700"
                         : "text-slate-500 hover:bg-slate-50",
@@ -1489,57 +1715,321 @@ export function ReviewBoostSettingsPanel({
                     </span>
                   </label>
                 ))
-              ) : (
-                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-8 text-center text-xs text-slate-400">
-                  Mục “{styleNav.find((s) => s.id === styleTab)?.label}” sẽ mở
-                  rộng khi nối CMS trang tặng.
-                </p>
-              )}
+              ) : null}
 
+              {styleTab === "banner" ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StyleText
+                    label="Dòng cảm ơn"
+                    value={landing.thankYou}
+                    onChange={(thankYou) => patchLanding({ thankYou })}
+                  />
+                  <StyleText
+                    label="Headline nổi bật"
+                    value={landing.headlineAccent}
+                    onChange={(headlineAccent) =>
+                      patchLanding({ headlineAccent })
+                    }
+                  />
+                  <StyleText
+                    label="Headline phụ"
+                    value={landing.headline}
+                    onChange={(headline) => patchLanding({ headline })}
+                  />
+                  <StyleText
+                    label="Nhãn nổi"
+                    value={landing.badge}
+                    onChange={(badge) => patchLanding({ badge })}
+                  />
+                  <div className="sm:col-span-2">
+                    <StyleText
+                      label="Thời hạn chương trình"
+                      value={landing.expiry}
+                      onChange={(expiry) => patchLanding({ expiry })}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {styleTab === "content" ? (
+                <div className="grid max-h-[420px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+                  <StyleText
+                    label="Tên cửa hàng"
+                    value={landing.shopName}
+                    onChange={(shopName) => patchLanding({ shopName })}
+                  />
+                  <StyleText
+                    label="Slogan"
+                    value={landing.tagline}
+                    onChange={(tagline) => patchLanding({ tagline })}
+                  />
+                  <StyleText
+                    label="Bước 1"
+                    value={landing.step1}
+                    onChange={(step1) => patchLanding({ step1 })}
+                  />
+                  <StyleText
+                    label="Bước 2"
+                    value={landing.step2}
+                    onChange={(step2) => patchLanding({ step2 })}
+                  />
+                  <StyleText
+                    label="Bước 3"
+                    value={landing.step3}
+                    onChange={(step3) => patchLanding({ step3 })}
+                  />
+                  <StyleText
+                    label="Tiêu đề form"
+                    value={landing.formTitle}
+                    onChange={(formTitle) => patchLanding({ formTitle })}
+                  />
+                  <div className="sm:col-span-2">
+                    <StyleText
+                      label="Gợi ý form"
+                      value={landing.formHint}
+                      onChange={(formHint) => patchLanding({ formHint })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                      <Volume2 className="h-3.5 w-3.5" />
+                      Bản ghi hướng dẫn nhận thưởng
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Khách nhấn để nghe trên trang tặng, phía trên ô nhập mã
+                      đơn.
+                    </p>
+                    <StyleText
+                      label="Chữ trên nút nghe"
+                      value={landing.guideAudioLabel}
+                      onChange={(guideAudioLabel) =>
+                        patchLanding({ guideAudioLabel })
+                      }
+                    />
+                    {landing.guideAudioUrl ? (
+                      <div className="mt-2 space-y-2">
+                        <p className="truncate text-xs text-slate-600">
+                          {landing.guideAudioName || "Đã có bản ghi"}
+                        </p>
+                        <audio
+                          controls
+                          src={landing.guideAudioUrl}
+                          className="w-full"
+                        />
+                        <button
+                          type="button"
+                          disabled={audioBusy}
+                          onClick={() => void removeGuideAudio()}
+                          className="text-xs text-rose-500 hover:underline"
+                        >
+                          Xoá bản ghi
+                        </button>
+                      </div>
+                    ) : null}
+                    <label className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-blue-600">
+                      {audioBusy ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {landing.guideAudioUrl ? "Đổi bản ghi" : "Tải bản ghi lên"}
+                      <input
+                        type="file"
+                        accept="audio/mpeg,audio/mp3,audio/mp4,audio/x-m4a,audio/wav,audio/aac,audio/ogg,audio/webm,.mp3,.m4a,.wav,.aac,.ogg,.webm"
+                        className="hidden"
+                        disabled={audioBusy}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          e.target.value = "";
+                          void onGuideAudioSelected(file);
+                        }}
+                      />
+                    </label>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      MP3, M4A, WAV · tối đa 15MB
+                    </p>
+                  </div>
+                  <StyleText
+                    label="Tiêu đề món tặng"
+                    value={landing.giftsTitle}
+                    onChange={(giftsTitle) => patchLanding({ giftsTitle })}
+                  />
+                  <div className="sm:col-span-2">
+                    <StyleText
+                      label="Lưu ý (mỗi dòng 1 ý)"
+                      value={landing.notes}
+                      rows={4}
+                      onChange={(notes) => patchLanding({ notes })}
+                    />
+                  </div>
+                  <StyleText
+                    label="Footer"
+                    value={landing.footerTitle}
+                    onChange={(footerTitle) => patchLanding({ footerTitle })}
+                  />
+                  <StyleText
+                    label="Footer phụ"
+                    value={landing.footerText}
+                    onChange={(footerText) => patchLanding({ footerText })}
+                  />
+                  <StyleText
+                    label="Tiêu đề popup chúc mừng"
+                    value={landing.winTitle}
+                    onChange={(winTitle) => patchLanding({ winTitle })}
+                  />
+                  <div className="sm:col-span-2">
+                    <StyleText
+                      label="Lời chúc khi quay trúng"
+                      value={landing.winMessage}
+                      rows={2}
+                      onChange={(winMessage) => patchLanding({ winMessage })}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {styleTab === "button" ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StyleText
+                    label="Nút thông tin cửa hàng"
+                    value={landing.storeInfoLabel}
+                    onChange={(storeInfoLabel) =>
+                      patchLanding({ storeInfoLabel })
+                    }
+                  />
+                  <StyleText
+                    label="Nút quay thưởng"
+                    value={landing.confirmLabel}
+                    onChange={(confirmLabel) =>
+                      patchLanding({ confirmLabel })
+                    }
+                  />
+                  <StyleText
+                    label="Placeholder mã đơn"
+                    value={landing.orderPlaceholder}
+                    onChange={(orderPlaceholder) =>
+                      patchLanding({ orderPlaceholder })
+                    }
+                  />
+                  <StyleText
+                    label="Nút mua ngay"
+                    value={landing.buyNowLabel}
+                    onChange={(buyNowLabel) => patchLanding({ buyNowLabel })}
+                  />
+                  <div className="sm:col-span-2">
+                    <StyleText
+                      label="Link Shopee (nút Mua ngay)"
+                      value={landing.buyNowUrl}
+                      onChange={(buyNowUrl) => patchLanding({ buyNowUrl })}
+                    />
+                  </div>
+                  <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                    Bo góc nút ({landing.buttonRadius}px)
+                    <input
+                      type="range"
+                      min={8}
+                      max={28}
+                      value={landing.buttonRadius}
+                      onChange={(e) =>
+                        patchLanding({ buttonRadius: Number(e.target.value) })
+                      }
+                      className="mt-2 w-full"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {styleTab === "font" ? (
+                <label className="block text-sm font-medium text-slate-700">
+                  Font chữ trang tặng
+                  <select
+                    value={landing.fontFamily}
+                    onChange={(e) =>
+                      patchLanding({ fontFamily: e.target.value })
+                    }
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-400"
+                  >
+                    {LANDING_FONTS.map((font) => (
+                      <option key={font.id} value={font.id}>
+                        {font.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              {styleTab === "other" ? (
+                <div className="grid gap-3">
+                  <StyleText
+                    label="Hướng dẫn mã đơn"
+                    value={landing.orderHelp}
+                    onChange={(orderHelp) => patchLanding({ orderHelp })}
+                  />
+                  <StyleText
+                    label="Link hướng dẫn"
+                    value={landing.orderGuide}
+                    onChange={(orderGuide) => patchLanding({ orderGuide })}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mx-auto w-[200px] shrink-0 space-y-3">
               <div
-                className="mx-auto w-[160px] overflow-hidden rounded-[1.4rem] border-4 border-slate-800 shadow-lg"
-                style={{ background: settings.style.background }}
+                className="overflow-hidden rounded-[1.4rem] border-4 border-slate-800 shadow-lg"
+                style={{
+                  background: settings.style.background,
+                  fontFamily: landing.fontFamily,
+                }}
               >
                 <div className="px-3 pt-3 pb-4 text-center">
                   <p
-                    className="text-[10px] font-bold tracking-widest"
+                    className="truncate text-[10px] font-bold"
                     style={{ color: settings.style.text }}
                   >
-                    GENKY
+                    {landing.shopName}
                   </p>
                   <p
                     className="mt-2 text-[11px] leading-snug font-extrabold"
                     style={{ color: settings.style.primary }}
                   >
-                    ĐÁNH GIÁ 5★
+                    {landing.headlineAccent}
                     <br />
-                    NHẬN QUÀ NGAY!
+                    {landing.headline}
                   </p>
                   <div className="mx-auto mt-3 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-2xl shadow-sm">
                     🎁
                   </div>
                   <div className="mt-3 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] text-slate-400">
-                    Nhập mã đơn hàng
+                    {landing.orderPlaceholder}
                   </div>
                   <button
                     type="button"
-                    className="mt-2 w-full rounded-lg py-1.5 text-[9px] font-bold text-white"
-                    style={{ background: settings.style.primary }}
+                    className="mt-2 w-full py-1.5 text-[9px] font-bold text-white"
+                    style={{
+                      background: settings.style.primary,
+                      borderRadius: landing.buttonRadius,
+                    }}
                   >
-                    KIỂM TRA NGAY
+                    {landing.confirmLabel === "Xác nhận"
+                      ? "Quay Thưởng"
+                      : landing.confirmLabel}
                   </button>
                 </div>
               </div>
 
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  try {
+                    writeReviewLandingPreviewDraft(orgId, settings);
+                  } catch {
+                    /* ignore */
+                  }
                   window.open(
-                    selectedQr?.public_url || settings.qrUrl,
+                    landingPreviewUrl,
                     "_blank",
                     "noopener,noreferrer",
-                  )
-                }
+                  );
+                }}
                 className="inline-flex w-full items-center justify-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline"
               >
                 Xem thử trang
@@ -1578,7 +2068,7 @@ export function ReviewBoostSettingsPanel({
                   Thêm món tặng
                 </h3>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  Nhập tên, ảnh và chi phí món.
+                  Nhập tên, ảnh, chi phí và trị giá món.
                 </p>
               </div>
               <button
@@ -1662,6 +2152,21 @@ export function ReviewBoostSettingsPanel({
                   onChange={(e) => setAddGiftValue(e.target.value)}
                   className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm tabular-nums outline-none focus:border-blue-400"
                 />
+              </label>
+
+              <label className="block text-sm font-medium text-slate-700">
+                Trị giá (VNĐ)
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  value={addGiftDisplayValue}
+                  onChange={(e) => setAddGiftDisplayValue(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm tabular-nums outline-none focus:border-blue-400"
+                />
+                <span className="mt-1 block text-xs font-normal text-slate-400">
+                  Số này hiện cho khách khi quay thưởng.
+                </span>
               </label>
 
               {addGiftError ? (

@@ -2,10 +2,13 @@
 
 namespace App\Services\Marketing;
 
+use App\Models\Branch;
 use App\Models\Employee;
+use App\Models\MarketingReview;
 use App\Models\MarketingRewardCode;
 use App\Models\MarketingRewardRedemption;
 use App\Models\User;
+use App\Support\Marketing\OrderCode;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +23,12 @@ class MarketingRewardRedemptionService
      */
     public function check(string $code): array
     {
+        $trimmed = trim($code);
+        $upper = mb_strtoupper($trimmed);
+        $compact = preg_replace('/[\s\-_.]/u', '', $upper) ?? $upper;
+        $orderCandidates = OrderCode::candidates($trimmed);
+        $partial = mb_strlen($compact) >= 4;
+
         /** @var MarketingRewardCode|null $row */
         $row = MarketingRewardCode::query()
             ->with([
@@ -29,12 +38,44 @@ class MarketingRewardRedemptionService
                 'review.branch',
                 'redeemedBranch',
             ])
-            ->where('code', trim($code))
+            ->where(function ($q) use ($upper, $compact, $orderCandidates, $partial) {
+                $q->whereRaw('UPPER(code) = ?', [$upper])
+                    ->orWhereRaw(
+                        "REPLACE(REPLACE(REPLACE(UPPER(code), '-', ''), ' ', ''), '_', '') = ?",
+                        [$compact],
+                    );
+                if ($partial) {
+                    $like = '%'.self::likeEscape($upper).'%';
+                    $compactLike = '%'.self::likeEscape($compact).'%';
+                    $q->orWhereRaw('UPPER(code) LIKE ?', [$like])
+                        ->orWhereRaw(
+                            "REPLACE(REPLACE(REPLACE(UPPER(code), '-', ''), ' ', ''), '_', '') LIKE ?",
+                            [$compactLike],
+                        )
+                        ->orWhereRaw(
+                            "REPLACE(REPLACE(REPLACE(UPPER(COALESCE(order_code, '')), '-', ''), ' ', ''), '_', '') LIKE ?",
+                            [$compactLike],
+                        );
+                }
+                if ($orderCandidates !== []) {
+                    $q->orWhereIn('order_code', $orderCandidates);
+                }
+            })
+            ->orderByRaw(
+                'CASE
+                    WHEN UPPER(code) = ? THEN 0
+                    WHEN REPLACE(REPLACE(REPLACE(UPPER(code), \'-\', \'\'), \' \', \'\'), \'_\', \'\') = ? THEN 1
+                    WHEN status = ? THEN 2
+                    ELSE 3
+                END',
+                [$upper, $compact, MarketingRewardCode::STATUS_ISSUED],
+            )
+            ->orderByDesc('id')
             ->first();
 
         if (! $row) {
             throw ValidationException::withMessages([
-                'code' => 'Không tìm thấy mã quà.',
+                'code' => 'Không tìm thấy mã tặng.',
             ]);
         }
 
@@ -43,8 +84,25 @@ class MarketingRewardRedemptionService
         $valid = $row->status === MarketingRewardCode::STATUS_ISSUED
             && ($row->expires_at === null || $row->expires_at->isFuture());
 
+        $reason = match (true) {
+            $valid => null,
+            $row->status === MarketingRewardCode::STATUS_REDEEMED => 'Mã đã được đổi.',
+            $row->status === MarketingRewardCode::STATUS_CANCELLED => 'Mã đã bị huỷ.',
+            $row->status === MarketingRewardCode::STATUS_EXPIRED => 'Mã đã hết hạn.',
+            default => 'Mã không còn hiệu lực.',
+        };
+
+        $orderCode = $row->order_code ?: $row->review?->order_code;
+        $missingReview = $this->orderMissingReview($row, $orderCode);
+
         return [
             'valid' => $valid,
+            'reason' => $reason,
+            'missing_review' => $missingReview,
+            'missing_review_message' => $missingReview
+                ? 'Phát hiện chưa có đánh giá, kiểm tra ngay'
+                : null,
+            'provisional' => (bool) $row->provisional,
             'id' => $row->id,
             'code' => $row->code,
             'status' => $row->status,
@@ -55,21 +113,26 @@ class MarketingRewardRedemptionService
                 'id' => $row->reward->id,
                 'name' => $row->reward->name,
                 'value' => $row->reward->value,
+                'display_value' => $row->reward->customerDisplayValue(),
                 'image' => $row->reward->image,
+                'image_url' => $row->reward->imageUrl(),
             ] : null,
             'customer' => $row->review ? [
                 'name' => $row->review->customer_name,
                 'phone' => $row->review->customer_phone,
             ] : null,
             'order' => [
-                'order_code' => $row->review?->order_code,
+                'order_code' => $orderCode,
                 'rating' => $row->review?->rating,
                 'reviewed_at' => optional($row->review?->reviewed_at)?->format('Y-m-d H:i:s'),
             ],
             'branch' => $row->review?->branch ? [
                 'id' => $row->review->branch->id,
                 'name' => $row->review->branch->name,
-            ] : null,
+            ] : ($row->redeemedBranch ? [
+                'id' => $row->redeemedBranch->id,
+                'name' => $row->redeemedBranch->name,
+            ] : null),
             'campaign' => $row->campaign ? [
                 'id' => $row->campaign->id,
                 'name' => $row->campaign->name,
@@ -147,6 +210,7 @@ class MarketingRewardRedemptionService
                 'customerInitial' => mb_strtoupper(mb_substr($customerName === '—' ? '?' : $customerName, 0, 1)),
                 'channel' => $channel,
                 'channelLabel' => $r->review?->channel?->name,
+                'branchId' => $r->branch_id,
                 'branch' => $r->branch?->name ?? '—',
                 'giftName' => $giftName,
                 'giftEmoji' => '🎁',
@@ -222,7 +286,7 @@ class MarketingRewardRedemptionService
             $redemption = MarketingRewardRedemption::query()->create([
                 'organization_id' => $code->organization_id,
                 'reward_code_id' => $code->id,
-                'order_code' => $code->review?->order_code,
+                'order_code' => $code->order_code ?: $code->review?->order_code,
                 'review_id' => $code->review_id,
                 'reward_id' => $code->reward_id,
                 'branch_id' => $branchId,
@@ -246,6 +310,88 @@ class MarketingRewardRedemptionService
         });
     }
 
+    /**
+     * @param  array{branch_id?: int, note?: ?string}  $data
+     */
+    public function updateRedemption(int $id, array $data): MarketingRewardRedemption
+    {
+        $row = MarketingRewardRedemption::query()
+            ->with('rewardCode')
+            ->findOrFail($id);
+
+        if (array_key_exists('note', $data)) {
+            $note = $data['note'];
+            $row->note = $note === null || $note === '' ? null : trim((string) $note);
+        }
+
+        if (array_key_exists('branch_id', $data) && $data['branch_id'] !== null) {
+            $branchId = (int) $data['branch_id'];
+            $branchOk = Branch::query()->whereKey($branchId)->exists();
+            if (! $branchOk) {
+                throw ValidationException::withMessages([
+                    'branch_id' => 'Chi nhánh không hợp lệ.',
+                ]);
+            }
+            $row->branch_id = $branchId;
+            if ($row->rewardCode) {
+                $row->rewardCode->redeemed_branch_id = $branchId;
+                $row->rewardCode->save();
+            }
+        }
+
+        $row->save();
+
+        return $row->fresh(['rewardCode', 'reward', 'branch', 'employee', 'review']);
+    }
+
+    public function deleteRedemption(int $id): void
+    {
+        DB::transaction(function () use ($id) {
+            /** @var MarketingRewardRedemption $row */
+            $row = MarketingRewardRedemption::query()
+                ->with('rewardCode')
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $code = $row->rewardCode;
+            $row->delete();
+
+            if ($code && $code->status === MarketingRewardCode::STATUS_REDEEMED) {
+                $code->redeemed_at = null;
+                $code->redeemed_branch_id = null;
+                $code->redeemed_by = null;
+                $code->status = ($code->expires_at && $code->expires_at->isPast())
+                    ? MarketingRewardCode::STATUS_EXPIRED
+                    : MarketingRewardCode::STATUS_ISSUED;
+                $code->save();
+            }
+        });
+    }
+
+    protected function orderMissingReview(MarketingRewardCode $row, ?string $orderCode): bool
+    {
+        if ($row->review_id) {
+            return false;
+        }
+
+        if (! $orderCode) {
+            return (bool) $row->provisional;
+        }
+
+        $exists = MarketingReview::query()
+            ->whereIn('order_code', OrderCode::candidates($orderCode))
+            ->where('status', '!=', MarketingReview::STATUS_REJECTED)
+            ->exists();
+
+        return ! $exists;
+    }
+
+    protected static function likeEscape(string $value): string
+    {
+        return str_replace(['%', '_'], '', $value);
+    }
+
     protected function syncExpired(MarketingRewardCode $row): void
     {
         if ($row->status === MarketingRewardCode::STATUS_ISSUED
@@ -263,7 +409,7 @@ class MarketingRewardRedemptionService
         MarketingRewardCode $code,
     ): void {
         // Chi nhánh phải thuộc org (tenant scope Branch).
-        $branchOk = \App\Models\Branch::query()->whereKey($branchId)->exists();
+        $branchOk = Branch::query()->whereKey($branchId)->exists();
         if (! $branchOk) {
             throw ValidationException::withMessages([
                 'branch_id' => 'Chi nhánh không hợp lệ.',

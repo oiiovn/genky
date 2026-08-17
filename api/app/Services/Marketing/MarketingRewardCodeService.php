@@ -8,34 +8,65 @@ use App\Models\MarketingRewardCode;
 use App\Models\MarketingRewardCodeSetting;
 use App\Models\MarketingReview;
 use App\Models\MarketingReviewCampaign;
+use App\Support\Marketing\OrderCode;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 
 class MarketingRewardCodeService
 {
+    public function __construct(
+        private readonly MarketingRewardCodeSettingService $codeSettings,
+    ) {
+    }
+
     public function issueForVerifiedReview(
         MarketingReview $review,
         MarketingReviewCampaign $campaign,
         ?int $rewardId = null,
     ): MarketingRewardCode {
-        $already = MarketingRewardCode::query()
-            ->where('review_id', $review->id)
-            ->lockForUpdate()
-            ->exists();
+        return $this->issueForOrder(
+            $campaign,
+            (string) $review->order_code,
+            $review,
+            false,
+            $rewardId,
+        );
+    }
 
-        if ($already) {
+    public function issueForOrder(
+        MarketingReviewCampaign $campaign,
+        string $orderCode,
+        ?MarketingReview $review = null,
+        bool $provisional = false,
+        ?int $rewardId = null,
+    ): MarketingRewardCode {
+        $existing = $this->findActiveByOrder($campaign, $orderCode);
+        if ($existing) {
             throw ValidationException::withMessages([
-                'review_id' => 'Review này đã được cấp mã quà.',
+                'order_code' => 'Mã đơn này đã nhận thưởng.',
             ]);
         }
 
-        $this->assertRewardCaps($review, $campaign);
+        if ($review) {
+            $already = MarketingRewardCode::query()
+                ->where('review_id', $review->id)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($already) {
+                throw ValidationException::withMessages([
+                    'review_id' => 'Review này đã được cấp mã quà.',
+                ]);
+            }
+        }
+
+        $this->assertRewardCaps($campaign, $orderCode, $review);
 
         $reward = $rewardId
             ? $this->resolveReward($campaign, $rewardId)
             : $this->pickReward($campaign);
-        $settings = $this->settingsFor((int) $campaign->organization_id);
+        $settings = $this->codeSettings->ensureDefaults((int) $campaign->organization_id);
         $code = $this->generateUniqueCode($settings, (int) $campaign->organization_id);
         $now = now();
 
@@ -43,10 +74,13 @@ class MarketingRewardCodeService
             return MarketingRewardCode::query()->create([
                 'organization_id' => $campaign->organization_id,
                 'campaign_id' => $campaign->id,
-                'review_id' => $review->id,
+                'review_id' => $review?->id,
+                'order_code' => $orderCode,
                 'reward_id' => $reward->id,
                 'code' => $code,
                 'status' => MarketingRewardCode::STATUS_ISSUED,
+                'provisional' => $provisional,
+                'reconcile_at' => $provisional ? $now->copy()->addHours(48) : null,
                 'issued_at' => $now,
                 'expires_at' => $this->resolveExpiresAt($settings, $now),
             ]);
@@ -67,6 +101,24 @@ class MarketingRewardCodeService
         }
     }
 
+    public function findActiveByOrder(
+        MarketingReviewCampaign $campaign,
+        string $orderCode,
+    ): ?MarketingRewardCode {
+        $candidates = OrderCode::candidates($orderCode);
+
+        return MarketingRewardCode::query()
+            ->where('campaign_id', $campaign->id)
+            ->whereIn('order_code', $candidates)
+            ->whereIn('status', [
+                MarketingRewardCode::STATUS_ISSUED,
+                MarketingRewardCode::STATUS_REDEEMED,
+            ])
+            ->lockForUpdate()
+            ->orderByDesc('id')
+            ->first();
+    }
+
     public function payload(MarketingRewardCode $code): array
     {
         $code->loadMissing('reward');
@@ -75,23 +127,34 @@ class MarketingRewardCodeService
             'id' => $code->id,
             'campaign_id' => $code->campaign_id,
             'review_id' => $code->review_id,
+            'order_code' => $code->order_code,
             'reward_id' => $code->reward_id,
             'reward_name' => $code->reward?->name,
             'code' => $code->code,
             'status' => $code->status,
+            'provisional' => (bool) $code->provisional,
             'issued_at' => optional($code->issued_at)?->toIso8601String(),
             'expires_at' => optional($code->expires_at)?->toIso8601String(),
         ];
     }
 
     protected function assertRewardCaps(
-        MarketingReview $review,
         MarketingReviewCampaign $campaign,
+        string $orderCode,
+        ?MarketingReview $review,
     ): void {
         if ($campaign->max_reward_per_order !== null) {
             $count = MarketingRewardCode::query()
                 ->where('campaign_id', $campaign->id)
-                ->whereHas('review', fn ($q) => $q->where('order_code', $review->order_code))
+                ->where(function ($q) use ($orderCode, $review) {
+                    $q->whereIn('order_code', OrderCode::candidates($orderCode));
+                    if ($review) {
+                        $q->orWhereHas(
+                            'review',
+                            fn ($r) => $r->whereIn('order_code', OrderCode::candidates($orderCode)),
+                        );
+                    }
+                })
                 ->whereIn('status', [
                     MarketingRewardCode::STATUS_ISSUED,
                     MarketingRewardCode::STATUS_REDEEMED,
@@ -106,7 +169,8 @@ class MarketingRewardCodeService
             }
         }
 
-        if ($campaign->max_reward_per_customer !== null
+        if ($review
+            && $campaign->max_reward_per_customer !== null
             && filled($review->customer_phone)
         ) {
             $count = MarketingRewardCode::query()
@@ -209,17 +273,7 @@ class MarketingRewardCodeService
 
     protected function settingsFor(int $organizationId): MarketingRewardCodeSetting
     {
-        $settings = MarketingRewardCodeSetting::query()
-            ->where('organization_id', $organizationId)
-            ->first();
-
-        if (! $settings) {
-            throw ValidationException::withMessages([
-                'code_config' => 'Chưa cấu hình định dạng mã quà.',
-            ]);
-        }
-
-        return $settings;
+        return $this->codeSettings->ensureDefaults($organizationId);
     }
 
     protected function generateUniqueCode(

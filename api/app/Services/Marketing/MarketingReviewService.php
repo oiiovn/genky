@@ -661,6 +661,7 @@ class MarketingReviewService
                 'id' => $r->id,
                 'name' => $r->name,
                 'value' => (int) $r->value,
+                'display_value' => $r->customerDisplayValue(),
                 'image_url' => $r->imageUrl(),
             ])->values(),
             'defaults' => [

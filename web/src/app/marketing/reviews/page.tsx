@@ -45,7 +45,7 @@ const ReviewBoostOverview = dynamic(
 
 type TabId = "overview" | "reviews" | "history" | "settings";
 
-function isoRange(days = 12): { from: string; to: string; label: string } {
+function isoRange(days = 90): { from: string; to: string; label: string } {
   const to = new Date();
   const from = new Date();
   from.setDate(to.getDate() - days);
@@ -55,16 +55,30 @@ function isoRange(days = 12): { from: string; to: string; label: string } {
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   };
-  const label = (d: Date) =>
-    d.toLocaleDateString("vi-VN", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+  const fromIso = iso(from);
+  const toIso = iso(to);
   return {
-    from: iso(from),
-    to: iso(to),
-    label: `${label(from)} – ${label(to)}`,
+    from: fromIso,
+    to: toIso,
+    label: `${labelVi(fromIso)} – ${labelVi(toIso)}`,
+  };
+}
+
+function labelVi(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function withRange(
+  from: string,
+  to: string,
+): { from: string; to: string; label: string } {
+  const start = from <= to ? from : to;
+  const end = from <= to ? to : from;
+  return {
+    from: start,
+    to: end,
+    label: `${labelVi(start)} – ${labelVi(end)}`,
   };
 }
 
@@ -77,7 +91,7 @@ export default function MarketingReviewsPage() {
 
   const [tab, setTab] = useState<TabId>("overview");
   const [branchId, setBranchId] = useState<number | "">("");
-  const [range] = useState(() => isoRange(12));
+  const [range, setRange] = useState(() => isoRange(90));
   const [savedUrl, setSavedUrl] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -193,9 +207,28 @@ export default function MarketingReviewsPage() {
                 ))}
               </select>
             </label>
-            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-              {range.label}
-            </div>
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <span className="text-slate-400">Từ</span>
+              <input
+                type="date"
+                value={range.from}
+                onChange={(e) =>
+                  setRange(withRange(e.target.value || range.from, range.to))
+                }
+                className="bg-transparent font-medium text-slate-800 outline-none"
+              />
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+              <span className="text-slate-400">Đến</span>
+              <input
+                type="date"
+                value={range.to}
+                onChange={(e) =>
+                  setRange(withRange(range.from, e.target.value || range.to))
+                }
+                className="bg-transparent font-medium text-slate-800 outline-none"
+              />
+            </label>
           </div>
           <button
             type="button"
@@ -264,11 +297,17 @@ export default function MarketingReviewsPage() {
           <ReviewBoostHistoryPanel
             branches={branches}
             branchId={branchId}
+            from={range.from}
+            to={range.to}
             dateLabel={range.label}
             refreshTick={overviewTick}
             onExport={() => {
               setToast("Xuất Excel sẽ gắn API sau.");
               window.setTimeout(() => setToast(null), 2200);
+            }}
+            onToast={(message) => {
+              setToast(message);
+              window.setTimeout(() => setToast(null), 2400);
             }}
           />
         ) : null}

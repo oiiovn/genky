@@ -25,10 +25,12 @@ use App\Http\Controllers\Api\AdjustmentController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\UserPreferencesController;
 use App\Http\Controllers\Api\Marketing\MarketingChannelController;
+use App\Http\Controllers\Api\Marketing\MarketingLandingController;
 use App\Http\Controllers\Api\Marketing\MarketingQrCodeController;
 use App\Http\Controllers\Api\Marketing\MarketingReviewCampaignController;
 use App\Http\Controllers\Api\Marketing\MarketingReviewController;
 use App\Http\Controllers\Api\Marketing\MarketingRewardCodeController;
+use App\Http\Controllers\Api\Marketing\MarketingRewardCodeSettingController;
 use App\Http\Controllers\Api\Marketing\MarketingRewardController;
 use App\Http\Controllers\Api\Marketing\PublicReviewRewardController;
 use App\Http\Middleware\LogActivity;
@@ -54,7 +56,9 @@ Route::post('invitations/{token}/accept', [EmployeeInvitationController::class, 
 // Public marketing — tách khỏi admin API, không cần đăng nhập
 Route::prefix('public/review-reward')->middleware('throttle:30,1')->group(function () {
     Route::post('verify-order', [PublicReviewRewardController::class, 'verifyOrder']);
+    Route::post('spin', [PublicReviewRewardController::class, 'spin']);
     Route::get('claim/{token}', [PublicReviewRewardController::class, 'claim']);
+    Route::get('guide-audio', [PublicReviewRewardController::class, 'guideAudio']);
 });
 
 Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class])->group(function () {
@@ -250,6 +254,14 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     Route::delete('marketing/rewards/{id}/image', [MarketingRewardController::class, 'clearImage']);
     Route::delete('marketing/rewards/{id}', [MarketingRewardController::class, 'destroy']);
 
+    Route::get('marketing/landing/guide-audio', [MarketingLandingController::class, 'showAudio']);
+    Route::post('marketing/landing/guide-audio', [MarketingLandingController::class, 'uploadAudio']);
+    Route::delete('marketing/landing/guide-audio', [MarketingLandingController::class, 'clearAudio']);
+
+    Route::get('marketing/reward-code-settings', [MarketingRewardCodeSettingController::class, 'show']);
+    Route::put('marketing/reward-code-settings', [MarketingRewardCodeSettingController::class, 'update']);
+    Route::patch('marketing/reward-code-settings', [MarketingRewardCodeSettingController::class, 'update']);
+
     // Marketing — QR theo chi nhánh
     Route::get('marketing/qr-codes', [MarketingQrCodeController::class, 'index']);
     Route::post('marketing/qr-codes/ensure-branches', [MarketingQrCodeController::class, 'ensureBranches']);
@@ -264,6 +276,9 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     Route::post('marketing/reviews/{id}/issue-reward', [MarketingReviewController::class, 'issueReward']);
     Route::post('marketing/review-campaigns/{id}/activate', [MarketingReviewCampaignController::class, 'activate']);
     Route::get('marketing/reward-redemptions', [MarketingRewardCodeController::class, 'history']);
+    Route::put('marketing/reward-redemptions/{id}', [MarketingRewardCodeController::class, 'updateRedemption']);
+    Route::patch('marketing/reward-redemptions/{id}', [MarketingRewardCodeController::class, 'updateRedemption']);
+    Route::delete('marketing/reward-redemptions/{id}', [MarketingRewardCodeController::class, 'destroyRedemption']);
     Route::post('marketing/reward-codes/check', [MarketingRewardCodeController::class, 'check']);
     Route::post('marketing/reward-codes/{id}/redeem', [MarketingRewardCodeController::class, 'redeem']);
 });

@@ -25,6 +25,7 @@ class MarketingRewardCodeSetting extends Model
         'expiry_type',
         'expiry_days',
         'expiry_date',
+        'reward_before_review',
     ];
 
     protected function casts(): array
@@ -39,6 +40,7 @@ class MarketingRewardCodeSetting extends Model
             'exclude_one' => 'boolean',
             'expiry_days' => 'integer',
             'expiry_date' => 'date',
+            'reward_before_review' => 'boolean',
         ];
     }
 }

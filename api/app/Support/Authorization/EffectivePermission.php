@@ -8,6 +8,7 @@ use App\Models\OrganizationUser;
 use App\Models\Role;
 use App\Models\User;
 use App\Support\Access\AccessCache;
+use App\Support\Marketing\MarketingPermissionMap;
 use App\Support\Role\RolePermissionCatalog;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -214,7 +215,27 @@ class EffectivePermission
             return true;
         }
 
+        if ($this->staffCanHandleGiftCode($resource, $action)) {
+            return true;
+        }
+
         return (bool) ($this->matrix[$resource][$action] ?? false);
+    }
+
+    /**
+     * Nhân viên (app staff) luôn kiểm tra mã và xác nhận tặng tại quầy.
+     */
+    protected function staffCanHandleGiftCode(string $resource, string $action): bool
+    {
+        if ($this->membershipRole !== OrganizationUser::ROLE_EMPLOYEE) {
+            return false;
+        }
+
+        return match ($resource) {
+            MarketingPermissionMap::REWARD => $action === 'view',
+            MarketingPermissionMap::REDEMPTION => in_array($action, ['view', 'create'], true),
+            default => false,
+        };
     }
 
     public function assertCan(string $resource, string $action = 'view', ?string $message = null): void

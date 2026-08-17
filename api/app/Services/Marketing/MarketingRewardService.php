@@ -42,6 +42,11 @@ class MarketingRewardService
             ? (int) $data['sort_order']
             : ((int) MarketingReward::query()->max('sort_order') + 1);
 
+        $value = max(0, (int) ($data['value'] ?? 0));
+        $displayValue = array_key_exists('display_value', $data)
+            ? max(0, (int) $data['display_value'])
+            : $value;
+
         $reward = MarketingReward::query()->create([
             'name' => $name,
             'description' => isset($data['description'])
@@ -49,7 +54,8 @@ class MarketingRewardService
                 : null,
             'image' => null,
             'sku' => $this->uniqueSkuFromName($name),
-            'value' => max(0, (int) ($data['value'] ?? 0)),
+            'value' => $value,
+            'display_value' => $displayValue,
             'enabled' => array_key_exists('enabled', $data)
                 ? (bool) $data['enabled']
                 : true,
@@ -85,6 +91,9 @@ class MarketingRewardService
         }
         if (array_key_exists('value', $data) && $data['value'] !== null) {
             $reward->value = max(0, (int) $data['value']);
+        }
+        if (array_key_exists('display_value', $data) && $data['display_value'] !== null) {
+            $reward->display_value = max(0, (int) $data['display_value']);
         }
         if (array_key_exists('enabled', $data)) {
             $reward->enabled = (bool) $data['enabled'];
@@ -198,6 +207,7 @@ class MarketingRewardService
                     'image' => null,
                     'sku' => $this->uniqueSkuFromName($row['name']),
                     'value' => $row['value'],
+                    'display_value' => $row['display_value'] ?? $row['value'],
                     'enabled' => true,
                     'sort_order' => $i + 1,
                 ]);
@@ -221,6 +231,7 @@ class MarketingRewardService
             'image_url' => $reward->imageUrl(),
             'sku' => $reward->sku,
             'value' => (int) $reward->value,
+            'display_value' => $reward->customerDisplayValue(),
             'enabled' => (bool) $reward->enabled,
             'sort_order' => (int) $reward->sort_order,
             'created_at' => optional($reward->created_at)?->toIso8601String(),

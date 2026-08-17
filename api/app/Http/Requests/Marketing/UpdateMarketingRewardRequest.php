@@ -17,6 +17,7 @@ class UpdateMarketingRewardRequest extends FormRequest
             'name' => ['sometimes', 'string', 'max:200'],
             'description' => ['nullable', 'string', 'max:2000'],
             'value' => ['sometimes', 'integer', 'min:0', 'max:100000000'],
+            'display_value' => ['sometimes', 'integer', 'min:0', 'max:100000000'],
             'enabled' => ['sometimes', 'boolean'],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:9999'],
         ];

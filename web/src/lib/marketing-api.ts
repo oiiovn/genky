@@ -68,6 +68,7 @@ export type MarketingReviewFormMeta = {
     id: number;
     name: string;
     value: number;
+    display_value: number;
     image_url: string | null;
   }[];
   defaults: { rating: number };
@@ -261,6 +262,9 @@ function normalizeRedeemRow(raw: Record<string, unknown>) {
     ),
     channel: String(raw.channel ?? "other") as ReviewBoostOverviewData["redeemRows"][number]["channel"],
     branch: String(raw.branch ?? "—"),
+    branchId: raw.branchId != null || raw.branch_id != null
+      ? Number(raw.branchId ?? raw.branch_id)
+      : null,
     giftName: String(raw.giftName ?? raw.gift_name ?? "Quà tặng"),
     giftEmoji: String(raw.giftEmoji ?? raw.gift_emoji ?? "🎁"),
     giftImageUrl: (raw.giftImageUrl ?? raw.gift_image_url ?? null) as
@@ -322,6 +326,123 @@ export async function fetchMarketingRedemptionHistory(
     from: (data.from as string) || undefined,
     to: (data.to as string) || undefined,
   };
+}
+
+export type MarketingRewardCodeCheck = {
+  valid: boolean;
+  reason: string | null;
+  missing_review: boolean;
+  missing_review_message: string | null;
+  provisional: boolean;
+  id: number;
+  code: string;
+  status: string;
+  expires_at: string | null;
+  issued_at: string | null;
+  redeemed_at: string | null;
+  reward: {
+    id: number;
+    name: string;
+    value: number;
+    display_value: number;
+    image_url: string | null;
+  } | null;
+  customer: { name: string | null; phone: string | null } | null;
+  order: { order_code: string | null; rating: number | null } | null;
+  branch: { id: number; name: string } | null;
+};
+
+export async function checkMarketingRewardCode(
+  code: string,
+  signal?: AbortSignal,
+): Promise<MarketingRewardCodeCheck> {
+  const res = await authFetch(`${apiUrl()}/marketing/reward-codes/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+    signal,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  const d = json.data ?? {};
+  const reward = (d.reward ?? null) as Record<string, unknown> | null;
+  const customer = (d.customer ?? null) as Record<string, unknown> | null;
+  const order = (d.order ?? null) as Record<string, unknown> | null;
+  const branch = (d.branch ?? null) as Record<string, unknown> | null;
+  return {
+    valid: Boolean(d.valid),
+    reason: d.reason ? String(d.reason) : null,
+    missing_review: Boolean(d.missing_review),
+    missing_review_message: d.missing_review_message
+      ? String(d.missing_review_message)
+      : null,
+    provisional: Boolean(d.provisional),
+    id: Number(d.id),
+    code: String(d.code ?? ""),
+    status: String(d.status ?? ""),
+    expires_at: d.expires_at ? String(d.expires_at) : null,
+    issued_at: d.issued_at ? String(d.issued_at) : null,
+    redeemed_at: d.redeemed_at ? String(d.redeemed_at) : null,
+    reward: reward
+      ? {
+          id: Number(reward.id),
+          name: String(reward.name ?? "Quà tặng"),
+          value: Number(reward.value ?? 0),
+          display_value: Number(
+            reward.display_value ?? reward.value ?? 0,
+          ),
+          image_url: (reward.image_url as string | null) ?? null,
+        }
+      : null,
+    customer: customer
+      ? {
+          name: (customer.name as string | null) ?? null,
+          phone: (customer.phone as string | null) ?? null,
+        }
+      : null,
+    order: order
+      ? {
+          order_code: (order.order_code as string | null) ?? null,
+          rating: order.rating == null ? null : Number(order.rating),
+        }
+      : null,
+    branch: branch
+      ? { id: Number(branch.id), name: String(branch.name ?? "") }
+      : null,
+  };
+}
+
+export async function redeemMarketingRewardCode(
+  id: number,
+  payload: { branch_id: number; note?: string },
+): Promise<void> {
+  const res = await authFetch(`${apiUrl()}/marketing/reward-codes/${id}/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function updateMarketingRedemption(
+  id: number | string,
+  payload: { branch_id?: number; note?: string | null },
+): Promise<void> {
+  const res = await authFetch(`${apiUrl()}/marketing/reward-redemptions/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+}
+
+export async function deleteMarketingRedemption(
+  id: number | string,
+): Promise<void> {
+  const res = await authFetch(`${apiUrl()}/marketing/reward-redemptions/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
 }
 
 export type MarketingChannelDto = {
@@ -445,11 +566,14 @@ export type MarketingRewardDto = {
   image_url: string | null;
   sku: string | null;
   value: number;
+  display_value: number;
   enabled: boolean;
   sort_order: number;
 };
 
 function normalizeReward(raw: Record<string, unknown>): MarketingRewardDto {
+  const value = Number(raw.value ?? 0);
+  const display = Number(raw.display_value ?? value);
   return {
     id: Number(raw.id),
     name: String(raw.name ?? ""),
@@ -457,7 +581,8 @@ function normalizeReward(raw: Record<string, unknown>): MarketingRewardDto {
     image: (raw.image as string | null) ?? null,
     image_url: (raw.image_url as string | null) ?? null,
     sku: (raw.sku as string | null) ?? null,
-    value: Number(raw.value ?? 0),
+    value,
+    display_value: display > 0 ? display : value,
     enabled: Boolean(raw.enabled),
     sort_order: Number(raw.sort_order ?? 0),
   };
@@ -492,6 +617,7 @@ export async function seedMarketingRewardDefaults(): Promise<MarketingRewardDto[
 export async function createMarketingReward(payload: {
   name: string;
   value?: number;
+  display_value?: number;
   enabled?: boolean;
   sort_order?: number;
   description?: string | null;
@@ -511,6 +637,7 @@ export async function updateMarketingReward(
   payload: Partial<{
     name: string;
     value: number;
+    display_value: number;
     enabled: boolean;
     sort_order: number;
     description: string | null;
@@ -612,4 +739,174 @@ export async function ensureMarketingBranchQrs(): Promise<MarketingBranchQrDto[]
   const json = (await res.json()) as { data: unknown };
   const rows = Array.isArray(json.data) ? json.data : [];
   return rows.map((row) => normalizeBranchQr(row as Record<string, unknown>));
+}
+
+export type MarketingLandingAudioDto = {
+  audio_url: string | null;
+  file_name: string | null;
+};
+
+function normalizeLandingAudio(
+  raw: Record<string, unknown> | null | undefined,
+): MarketingLandingAudioDto {
+  const url = raw?.audio_url;
+  const name = raw?.file_name;
+  return {
+    audio_url: typeof url === "string" && url ? url : null,
+    file_name: typeof name === "string" && name ? name : null,
+  };
+}
+
+export async function fetchMarketingLandingAudio(
+  signal?: AbortSignal,
+): Promise<MarketingLandingAudioDto> {
+  const res = await authFetch(`${apiUrl()}/marketing/landing/guide-audio`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingAudio(json.data);
+}
+
+export async function fetchPublicLandingAudio(
+  orgId: number | string,
+  signal?: AbortSignal,
+): Promise<MarketingLandingAudioDto> {
+  const id = Number(orgId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return { audio_url: null, file_name: null };
+  }
+  const res = await fetch(
+    `${apiUrl()}/public/review-reward/guide-audio?org_id=${id}`,
+    { cache: "no-store", signal },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingAudio(json.data);
+}
+
+export async function uploadMarketingLandingAudio(
+  file: File,
+): Promise<MarketingLandingAudioDto> {
+  const form = new FormData();
+  form.append("audio", file);
+  const res = await authFetch(`${apiUrl()}/marketing/landing/guide-audio`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingAudio(json.data);
+}
+
+export async function clearMarketingLandingAudio(): Promise<MarketingLandingAudioDto> {
+  const res = await authFetch(`${apiUrl()}/marketing/landing/guide-audio`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingAudio(json.data);
+}
+
+export type MarketingRewardCodeSettingsDto = {
+  prefix: string;
+  length: number;
+  use_letters: boolean;
+  use_numbers: boolean;
+  exclude_zero: boolean;
+  exclude_o: boolean;
+  exclude_i: boolean;
+  exclude_one: boolean;
+  expiry_type: string;
+  expiry_days: number | null;
+  expiry_date: string | null;
+  reward_before_review: boolean;
+};
+
+function normalizeCodeSettings(
+  raw: Record<string, unknown>,
+): MarketingRewardCodeSettingsDto {
+  return {
+    prefix: String(raw.prefix ?? "GEN"),
+    length: Number(raw.length ?? 4),
+    use_letters: Boolean(raw.use_letters),
+    use_numbers: Boolean(raw.use_numbers),
+    exclude_zero: Boolean(raw.exclude_zero),
+    exclude_o: Boolean(raw.exclude_o),
+    exclude_i: Boolean(raw.exclude_i),
+    exclude_one: Boolean(raw.exclude_one),
+    expiry_type: String(raw.expiry_type ?? "DAYS"),
+    expiry_days: raw.expiry_days == null ? null : Number(raw.expiry_days),
+    expiry_date: raw.expiry_date ? String(raw.expiry_date) : null,
+    reward_before_review: Boolean(raw.reward_before_review),
+  };
+}
+
+export async function fetchMarketingRewardCodeSettings(
+  signal?: AbortSignal,
+): Promise<MarketingRewardCodeSettingsDto> {
+  const res = await authFetch(`${apiUrl()}/marketing/reward-code-settings`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeCodeSettings(json.data);
+}
+
+export async function updateMarketingRewardCodeSettings(
+  payload: Partial<MarketingRewardCodeSettingsDto>,
+): Promise<MarketingRewardCodeSettingsDto> {
+  const res = await authFetch(`${apiUrl()}/marketing/reward-code-settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeCodeSettings(json.data);
+}
+
+export type PublicSpinReward = {
+  name: string;
+  code: string;
+  expires_at: string | null;
+  image_url: string | null;
+  display_value: number;
+};
+
+export type PublicSpinResult = {
+  success: boolean;
+  already_issued: boolean;
+  provisional: boolean;
+  reward: PublicSpinReward;
+};
+
+export async function spinPublicReviewReward(
+  orgId: number | string,
+  orderCode: string,
+): Promise<PublicSpinResult> {
+  const res = await fetch(`${apiUrl()}/public/review-reward/spin`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      org_id: Number(orgId),
+      order_code: orderCode,
+    }),
+  });
+  const json = (await res.json()) as PublicSpinResult & {
+    message?: string;
+    errors?: Record<string, string[]>;
+  };
+  if (!res.ok || !json.reward) {
+    const first = json.errors
+      ? Object.values(json.errors)[0]?.[0]
+      : json.message;
+    throw new Error(first || "Không quay thưởng được.");
+  }
+  return json;
 }

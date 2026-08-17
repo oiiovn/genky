@@ -13,12 +13,24 @@ import {
   Filter,
   Gift,
   MoreVertical,
+  Pencil,
   Search,
+  Trash2,
+  X,
+  TicketCheck,
+  AlertTriangle,
   XCircle,
 } from "lucide-react";
 import type { Branch } from "@/lib/api";
 import { formatReviewCount } from "@/lib/review-boost-demo";
-import { fetchMarketingRedemptionHistory } from "@/lib/marketing-api";
+import {
+  checkMarketingRewardCode,
+  deleteMarketingRedemption,
+  fetchMarketingRedemptionHistory,
+  redeemMarketingRewardCode,
+  updateMarketingRedemption,
+  type MarketingRewardCodeCheck,
+} from "@/lib/marketing-api";
 import type {
   ReviewChannel,
   ReviewRedeemRow,
@@ -91,6 +103,38 @@ function formatMoney(n: number): string {
   return `${n.toLocaleString("vi-VN")}đ`;
 }
 
+function formatIso(iso: string | null): string {
+  if (!iso) return "Không hạn";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const codeStatusUi: Record<string, { label: string; className: string }> = {
+  ISSUED: {
+    label: "Chưa đổi",
+    className: "bg-amber-50 text-amber-700 ring-amber-100",
+  },
+  REDEEMED: {
+    label: "Đã tặng",
+    className: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+  },
+  CANCELLED: {
+    label: "Đã huỷ",
+    className: "bg-slate-100 text-slate-600 ring-slate-200",
+  },
+  EXPIRED: {
+    label: "Hết hạn",
+    className: "bg-rose-50 text-rose-700 ring-rose-100",
+  },
+};
+
 function Avatar({
   initial,
   tone,
@@ -113,15 +157,21 @@ function Avatar({
 export function ReviewBoostHistoryTab({
   branches,
   branchId = "",
+  from,
+  to,
   dateLabel,
   refreshTick = 0,
   onExport,
+  onToast,
 }: {
   branches: Branch[];
   branchId?: number | "";
+  from?: string;
+  to?: string;
   dateLabel: string;
   refreshTick?: number;
   onExport?: () => void;
+  onToast?: (message: string) => void;
 }) {
   const [stats, setStats] = useState<ReviewRedeemStats>(emptyStats);
   const [redeemRows, setRedeemRows] = useState<ReviewRedeemRow[]>([]);
@@ -137,25 +187,23 @@ export function ReviewBoostHistoryTab({
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [localTick, setLocalTick] = useState(0);
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [editRow, setEditRow] = useState<ReviewRedeemRow | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
     setLoading(true);
     setLoadError(null);
-    void fetchMarketingRedemptionHistory({ branch_id: branchId }, ac.signal)
+    void fetchMarketingRedemptionHistory(
+      { branch_id: branchId, from, to },
+      ac.signal,
+    )
       .then((data) => {
         if (ac.signal.aborted) return;
         setStats(data.redeemStats ?? emptyStats);
         setRedeemRows(data.redeemRows ?? []);
-        if (data.from && data.to) {
-          const fmt = (iso: string) => {
-            const [y, m, d] = iso.split("-");
-            return `${d}/${m}/${y}`;
-          };
-          setRangeLabel(`${fmt(data.from)} – ${fmt(data.to)}`);
-        } else {
-          setRangeLabel(dateLabel);
-        }
+        setRangeLabel(dateLabel);
       })
       .catch((e: unknown) => {
         if (ac.signal.aborted) return;
@@ -169,7 +217,7 @@ export function ReviewBoostHistoryTab({
         if (!ac.signal.aborted) setLoading(false);
       });
     return () => ac.abort();
-  }, [branchId, refreshTick, dateLabel]);
+  }, [branchId, from, to, refreshTick, localTick, dateLabel]);
 
   const staffOptions = useMemo(
     () =>
@@ -226,6 +274,38 @@ export function ReviewBoostHistoryTab({
     });
   }
 
+  async function handleDelete(row: ReviewRedeemRow) {
+    setMenuId(null);
+    if (
+      !window.confirm(
+        `Xoá lượt đổi mã ${row.giftCode}? Mã tặng sẽ được mở lại để đổi.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await deleteMarketingRedemption(row.id);
+      onToast?.("Đã xoá lượt đổi quà.");
+      setLocalTick((n) => n + 1);
+    } catch (e: unknown) {
+      onToast?.(e instanceof Error ? e.message : "Không xoá được lượt đổi quà.");
+    }
+  }
+
+  async function handleSaveEdit(payload: {
+    branch_id?: number;
+    note: string;
+  }) {
+    if (!editRow) return;
+    await updateMarketingRedemption(editRow.id, {
+      branch_id: payload.branch_id,
+      note: payload.note,
+    });
+    onToast?.("Đã lưu lịch sử đổi quà.");
+    setEditRow(null);
+    setLocalTick((n) => n + 1);
+  }
+
   const kpis = [
     {
       label: "Tổng lượt đổi quà",
@@ -264,15 +344,21 @@ export function ReviewBoostHistoryTab({
     },
   ];
 
-  if (loading && redeemRows.length === 0) {
-    return <div className="h-72 animate-pulse rounded-2xl bg-slate-100" />;
-  }
-
   return (
     <div className="space-y-5">
+      <StaffRedeemPanel
+        branches={branches}
+        preferredBranchId={typeof branchId === "number" ? branchId : null}
+        onRedeemed={() => setLocalTick((n) => n + 1)}
+      />
+
       {loadError ? (
         <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
           {loadError}
+        </p>
+      ) : loading && redeemRows.length === 0 ? (
+        <p className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          Đang tải lịch sử đổi quà…
         </p>
       ) : (
         <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
@@ -459,7 +545,16 @@ export function ReviewBoostHistoryTab({
                     key={row.id}
                     row={row}
                     open={expanded.has(row.id)}
+                    menuOpen={menuId === row.id}
                     onToggle={() => toggleExpand(row.id)}
+                    onMenu={() =>
+                      setMenuId((id) => (id === row.id ? null : row.id))
+                    }
+                    onEdit={() => {
+                      setMenuId(null);
+                      setEditRow(row);
+                    }}
+                    onDelete={() => void handleDelete(row)}
                   />
                 ))
               )}
@@ -509,18 +604,312 @@ export function ReviewBoostHistoryTab({
           </div>
         </div>
       </section>
+      {editRow ? (
+        <EditRedemptionModal
+          row={editRow}
+          branches={branches}
+          onClose={() => setEditRow(null)}
+          onSave={(payload) => handleSaveEdit(payload)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function StaffRedeemPanel({
+  branches,
+  preferredBranchId,
+  onRedeemed,
+}: {
+  branches: Branch[];
+  preferredBranchId: number | null;
+  onRedeemed: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [found, setFound] = useState<MarketingRewardCodeCheck | null>(null);
+  const [redeemBranchId, setRedeemBranchId] = useState<number | "">("");
+  const [note, setNote] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemMsg, setRedeemMsg] = useState<string | null>(null);
+
+  async function handleCheck() {
+    const code = query.trim();
+    if (!code) {
+      setCheckError("Nhập mã tặng hoặc mã đơn.");
+      return;
+    }
+    setChecking(true);
+    setCheckError(null);
+    setRedeemMsg(null);
+    setFound(null);
+    try {
+      const data = await checkMarketingRewardCode(code);
+      setFound(data);
+      const fromCheck = data.branch?.id;
+      const next =
+        preferredBranchId ??
+        (fromCheck && branches.some((b) => b.id === fromCheck)
+          ? fromCheck
+          : (branches[0]?.id ?? ""));
+      setRedeemBranchId(next);
+    } catch (e: unknown) {
+      setCheckError(
+        e instanceof Error ? e.message : "Không kiểm tra được mã tặng.",
+      );
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function handleRedeem() {
+    if (!found?.valid) return;
+    if (!redeemBranchId) {
+      setCheckError("Chọn chi nhánh xác nhận tặng.");
+      return;
+    }
+    setRedeeming(true);
+    setCheckError(null);
+    setRedeemMsg(null);
+    try {
+      await redeemMarketingRewardCode(found.id, {
+        branch_id: Number(redeemBranchId),
+        note: note.trim() || undefined,
+      });
+      setRedeemMsg("Đã xác nhận tặng món.");
+      setFound({
+        ...found,
+        valid: false,
+        status: "REDEEMED",
+        reason: "Mã đã được đổi.",
+        redeemed_at: new Date().toISOString(),
+      });
+      setNote("");
+      onRedeemed();
+    } catch (e: unknown) {
+      setCheckError(
+        e instanceof Error ? e.message : "Không xác nhận được tặng món.",
+      );
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
+  const st = found
+    ? (codeStatusUi[found.status] ?? {
+        label: found.status,
+        className: "bg-slate-100 text-slate-600 ring-slate-200",
+      })
+    : null;
+
+  return (
+    <section className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white">
+          <TicketCheck className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">
+            Kiểm tra & xác nhận tặng
+          </h3>
+          <p className="text-xs text-slate-500">
+            Nhập mã tặng hoặc mã đơn để nhân viên đối chiếu rồi xác nhận đã tặng
+            món.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-stretch gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void handleCheck();
+          }}
+          placeholder="Mã tặng hoặc mã đơn, ví dụ GENKY-XXXX hoặc #08086-443874188"
+          className="min-w-[240px] flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-blue-400 focus:bg-white"
+        />
+        <button
+          type="button"
+          onClick={() => void handleCheck()}
+          disabled={checking}
+          className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {checking ? "Đang kiểm tra…" : "Kiểm tra"}
+        </button>
+      </div>
+
+      {checkError ? (
+        <p className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+          {checkError}
+        </p>
+      ) : null}
+      {redeemMsg ? (
+        <p className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {redeemMsg}
+        </p>
+      ) : null}
+
+      {found ? (
+        <div className="mt-4 grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[auto_1fr]">
+          {found.missing_review ? (
+            <p className="col-span-full flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Phát hiện chưa có đánh giá,{" "}
+                <span className="underline underline-offset-2">kiểm tra ngay</span>
+              </span>
+            </p>
+          ) : null}
+          <div className="flex items-center gap-3">
+            {found.reward?.image_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={found.reward.image_url}
+                alt={found.reward.name}
+                className="h-20 w-20 rounded-xl object-cover ring-1 ring-slate-200"
+              />
+            ) : (
+              <span className="flex h-20 w-20 items-center justify-center rounded-xl bg-white text-3xl ring-1 ring-slate-200">
+                🎁
+              </span>
+            )}
+            <div className="min-w-0">
+              <p className="font-semibold text-slate-900">
+                {found.reward?.name ?? "Quà tặng"}
+              </p>
+              <p className="text-xs text-slate-500">
+                {found.reward
+                  ? `Chi phí ${formatMoney(found.reward.value)}${
+                      found.reward.display_value
+                        ? ` · Trị giá ${formatMoney(found.reward.display_value)}`
+                        : ""
+                    }`
+                  : "—"}
+              </p>
+              {st ? (
+                <span
+                  className={clsx(
+                    "mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
+                    st.className,
+                  )}
+                >
+                  {st.label}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-[11px] tracking-wide text-slate-400 uppercase">
+                Mã tặng
+              </dt>
+              <dd className="font-mono font-semibold text-slate-800">
+                {found.code}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] tracking-wide text-slate-400 uppercase">
+                Mã đơn
+              </dt>
+              <dd className="font-medium text-slate-700">
+                {found.order?.order_code || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] tracking-wide text-slate-400 uppercase">
+                Hết hạn
+              </dt>
+              <dd className="text-slate-700">{formatIso(found.expires_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] tracking-wide text-slate-400 uppercase">
+                Khách
+              </dt>
+              <dd className="text-slate-700">
+                {found.customer?.name || "—"}
+                {found.customer?.phone ? ` · ${found.customer.phone}` : ""}
+              </dd>
+            </div>
+            {found.reason ? (
+              <div className="col-span-2 sm:col-span-2">
+                <dt className="text-[11px] tracking-wide text-slate-400 uppercase">
+                  Ghi chú
+                </dt>
+                <dd className="text-slate-700">{found.reason}</dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {found.valid ? (
+            <div className="col-span-full flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3">
+              <label className="min-w-[180px] text-sm">
+                <span className="mb-1 block text-xs text-slate-500">
+                  Chi nhánh tặng
+                </span>
+                <select
+                  value={redeemBranchId === "" ? "" : String(redeemBranchId)}
+                  onChange={(e) =>
+                    setRedeemBranchId(
+                      e.target.value ? Number(e.target.value) : "",
+                    )
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none"
+                >
+                  <option value="">Chọn chi nhánh</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="min-w-[200px] flex-1 text-sm">
+                <span className="mb-1 block text-xs text-slate-500">
+                  Ghi chú (tuỳ chọn)
+                </span>
+                <input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Ví dụ: đã giao tại quầy"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleRedeem()}
+                disabled={redeeming || !redeemBranchId}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {redeeming ? "Đang xác nhận…" : "Xác nhận tặng"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
 function RedeemRow({
   row,
   open,
+  menuOpen,
   onToggle,
+  onMenu,
+  onEdit,
+  onDelete,
 }: {
   row: ReviewRedeemRow;
   open: boolean;
+  menuOpen: boolean;
   onToggle: () => void;
+  onMenu: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const ch = channelUi(row.channel);
   const st = statusUi[row.status] ?? statusUi.success;
@@ -626,14 +1015,35 @@ function RedeemRow({
         <td className="max-w-[140px] truncate px-3 py-3 text-slate-500">
           {row.note ?? "—"}
         </td>
-        <td className="px-3 py-3">
+        <td className="relative px-3 py-3">
           <button
             type="button"
+            onClick={onMenu}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"
             aria-label="Tuỳ chọn"
           >
             <MoreVertical className="h-4 w-4" />
           </button>
+          {menuOpen ? (
+            <div className="absolute top-10 right-3 z-20 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={onEdit}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Sửa
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Xoá
+              </button>
+            </div>
+          ) : null}
         </td>
       </tr>
       {open ? (
@@ -646,5 +1056,121 @@ function RedeemRow({
         </tr>
       ) : null}
     </>
+  );
+}
+
+function EditRedemptionModal({
+  row,
+  branches,
+  onClose,
+  onSave,
+}: {
+  row: ReviewRedeemRow;
+  branches: Branch[];
+  onClose: () => void;
+  onSave: (payload: { branch_id?: number; note: string }) => Promise<void>;
+}) {
+  const matched = branches.find(
+    (b) => b.id === row.branchId || b.name === row.branch,
+  );
+  const [branchId, setBranchId] = useState<number | "">(matched?.id ?? "");
+  const [note, setNote] = useState(row.note ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">
+              Sửa lịch sử đổi quà
+            </h3>
+            <p className="mt-0.5 font-mono text-sm text-slate-500">
+              {row.giftCode}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50"
+            aria-label="Đóng"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <label className="block text-sm font-medium text-slate-700">
+            Chi nhánh
+            <select
+              value={branchId === "" ? "" : String(branchId)}
+              onChange={(e) =>
+                setBranchId(e.target.value ? Number(e.target.value) : "")
+              }
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none"
+            >
+              <option value="">Chọn chi nhánh</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Ghi chú
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none"
+              placeholder="Ghi chú khi tặng món"
+            />
+          </label>
+          {error ? (
+            <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600"
+          >
+            Huỷ
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              setSaving(true);
+              setError(null);
+              void onSave({
+                branch_id: branchId === "" ? undefined : Number(branchId),
+                note,
+              })
+                .catch((e: unknown) => {
+                  setError(e instanceof Error ? e.message : "Không lưu được.");
+                })
+                .finally(() => setSaving(false));
+            }}
+            className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Lưu
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

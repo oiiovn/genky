@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\Marketing;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Marketing\PublicSpinRewardRequest;
 use App\Http\Requests\Marketing\PublicVerifyOrderRequest;
+use App\Services\Marketing\MarketingLandingAudioService;
 use App\Services\Marketing\PublicReviewRewardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,6 +14,7 @@ class PublicReviewRewardController extends Controller
 {
     public function __construct(
         private readonly PublicReviewRewardService $rewards,
+        private readonly MarketingLandingAudioService $audio,
     ) {
     }
 
@@ -26,10 +29,31 @@ class PublicReviewRewardController extends Controller
         return response()->json($payload);
     }
 
+    public function spin(PublicSpinRewardRequest $request): JsonResponse
+    {
+        $payload = $this->rewards->spin(
+            (int) $request->validated('org_id'),
+            (string) $request->validated('order_code'),
+        );
+
+        return response()->json($payload);
+    }
+
     public function claim(string $token): JsonResponse
     {
         $payload = $this->rewards->claim(trim($token));
 
         return response()->json($payload);
+    }
+
+    public function guideAudio(Request $request): JsonResponse
+    {
+        $orgId = (int) $request->query('org_id', 0);
+
+        return response()->json([
+            'data' => $orgId > 0
+                ? $this->audio->showForOrganization($orgId)
+                : ['audio_url' => null, 'file_name' => null],
+        ]);
     }
 }

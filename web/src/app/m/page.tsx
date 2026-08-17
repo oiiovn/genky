@@ -14,6 +14,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useStaff } from "@/components/staff/StaffShell";
+import { StaffGiftCheckCard } from "@/components/staff/StaffGiftCheckCard";
 import {
   checkInAttendance,
   checkOutAttendance,
@@ -161,6 +162,11 @@ export default function StaffHomePage() {
           {session.orgName} · {session.employeeCode}
         </p>
       </header>
+
+      <StaffGiftCheckCard
+        branches={session.branches}
+        preferredBranchId={primaryBranchId}
+      />
 
       <section className="mb-5 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-sky-500/20 via-indigo-500/10 to-transparent p-4">
         <div className="flex items-start justify-between gap-3">

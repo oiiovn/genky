@@ -8,6 +8,7 @@ use App\Models\MarketingReviewCampaign;
 use App\Models\MarketingRewardClaimSession;
 use App\Models\MarketingRewardCode;
 use App\Models\Organization;
+use App\Support\Marketing\OrderCode;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -15,6 +16,13 @@ use Illuminate\Validation\ValidationException;
 
 class PublicReviewRewardService
 {
+    public function __construct(
+        private readonly MarketingReviewCampaignService $campaigns,
+        private readonly MarketingRewardCodeService $rewardCodes,
+        private readonly MarketingRewardCodeSettingService $codeSettings,
+        private readonly MarketingRewardService $rewards,
+    ) {
+    }
     /**
      * Không trả mã quà ngay — chỉ tạo claim session + claim_token.
      *
@@ -69,6 +77,209 @@ class PublicReviewRewardService
         } finally {
             TenantContext::clear();
         }
+    }
+
+    /**
+     * Khách nhập mã đơn trên trang tặng → tìm review đã tải / thưởng trước nếu được cài.
+     *
+     * @return array{
+     *   success: true,
+     *   already_issued: bool,
+     *   provisional: bool,
+     *   reward: array{name: string, code: string, expires_at: ?string, image_url: ?string}
+     * }
+     */
+    public function spin(int $orgId, string $orderCode): array
+    {
+        $organization = Organization::query()->find($orgId);
+        if (! $organization) {
+            throw ValidationException::withMessages([
+                'org_id' => 'Cửa hàng không hợp lệ.',
+            ]);
+        }
+
+        $normalized = OrderCode::normalize($orderCode);
+        if (! OrderCode::isShopeeFormat($normalized)) {
+            throw ValidationException::withMessages([
+                'order_code' => 'Mã đơn không đúng định dạng. Ví dụ: #08086-443874188',
+            ]);
+        }
+
+        TenantContext::set($organization);
+
+        try {
+            return DB::transaction(function () use ($normalized) {
+                $campaign = $this->campaigns->ensureDefaultActiveCampaign();
+                $this->rewards->seedDefaultsIfEmpty();
+                $settings = $this->codeSettings->ensureDefaults((int) $campaign->organization_id);
+
+                $existing = $this->rewardCodes->findActiveByOrder($campaign, $normalized);
+                if ($existing) {
+                    $this->assertRewardCodeClaimable($existing);
+                    $existing->loadMissing('reward');
+
+                    return $this->spinPayload($existing, alreadyIssued: true);
+                }
+
+                $review = MarketingReview::query()
+                    ->where('campaign_id', $campaign->id)
+                    ->whereIn('order_code', OrderCode::candidates($normalized))
+                    ->orderByDesc('id')
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($review) {
+                    if ($review->status === MarketingReview::STATUS_REJECTED) {
+                        throw ValidationException::withMessages([
+                            'order_code' => 'Đánh giá của đơn này đã bị từ chối.',
+                        ]);
+                    }
+
+                    $code = $this->rewardCodes->issueForOrder(
+                        $campaign,
+                        $normalized,
+                        $review,
+                        false,
+                    );
+
+                    return $this->spinPayload($code, alreadyIssued: false);
+                }
+
+                if (! $settings->reward_before_review) {
+                    throw ValidationException::withMessages([
+                        'order_code' => 'Chưa tìm thấy đánh giá cho mã đơn này.',
+                    ]);
+                }
+
+                $code = $this->rewardCodes->issueForOrder(
+                    $campaign,
+                    $normalized,
+                    null,
+                    true,
+                );
+
+                return $this->spinPayload($code, alreadyIssued: false);
+            });
+        } finally {
+            TenantContext::clear();
+        }
+    }
+
+    /**
+     * @return array{kept: int, cancelled: int}
+     */
+    public function reconcileProvisional(): array
+    {
+        $kept = 0;
+        $cancelled = 0;
+
+        $ids = MarketingRewardCode::withoutGlobalScopes()
+            ->where('provisional', true)
+            ->where('status', MarketingRewardCode::STATUS_ISSUED)
+            ->whereNotNull('reconcile_at')
+            ->where('reconcile_at', '<=', now())
+            ->pluck('id');
+
+        foreach ($ids as $id) {
+            $result = $this->reconcileOne((int) $id);
+            if ($result === 'kept') {
+                $kept++;
+            } elseif ($result === 'cancelled') {
+                $cancelled++;
+            }
+        }
+
+        return ['kept' => $kept, 'cancelled' => $cancelled];
+    }
+
+    protected function reconcileOne(int $id): string
+    {
+        return DB::transaction(function () use ($id) {
+            /** @var MarketingRewardCode|null $code */
+            $code = MarketingRewardCode::withoutGlobalScopes()
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $code
+                || ! $code->provisional
+                || $code->status !== MarketingRewardCode::STATUS_ISSUED
+            ) {
+                return 'skip';
+            }
+
+            $organization = Organization::query()->find($code->organization_id);
+            if (! $organization) {
+                return 'skip';
+            }
+
+            TenantContext::set($organization);
+
+            try {
+                if ($code->redeemed_at) {
+                    $code->provisional = false;
+                    $code->reconcile_at = null;
+                    $code->save();
+
+                    return 'kept';
+                }
+
+                $review = MarketingReview::query()
+                    ->where('campaign_id', $code->campaign_id)
+                    ->whereIn('order_code', OrderCode::candidates((string) $code->order_code))
+                    ->whereIn('status', [
+                        MarketingReview::STATUS_PENDING,
+                        MarketingReview::STATUS_VERIFIED,
+                    ])
+                    ->orderByDesc('id')
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($review) {
+                    $code->review_id = $code->review_id ?: $review->id;
+                    $code->provisional = false;
+                    $code->reconcile_at = null;
+                    $code->save();
+
+                    return 'kept';
+                }
+
+                $code->status = MarketingRewardCode::STATUS_CANCELLED;
+                $code->provisional = false;
+                $code->reconcile_at = null;
+                $code->save();
+
+                return 'cancelled';
+            } finally {
+                TenantContext::clear();
+            }
+        });
+    }
+
+    /**
+     * @return array{
+     *   success: true,
+     *   already_issued: bool,
+     *   provisional: bool,
+     *   reward: array{name: string, code: string, expires_at: ?string, image_url: ?string}
+     * }
+     */
+    protected function spinPayload(MarketingRewardCode $code, bool $alreadyIssued): array
+    {
+        $code->loadMissing('reward');
+
+        return [
+            'success' => true,
+            'already_issued' => $alreadyIssued,
+            'provisional' => (bool) $code->provisional,
+            'reward' => [
+                'name' => $code->reward?->name ?? 'Quà tặng',
+                'code' => $code->code,
+                'expires_at' => $code->expires_at?->format('Y-m-d'),
+                'image_url' => $code->reward?->imageUrl(),
+                'display_value' => $code->reward?->customerDisplayValue() ?? 0,
+            ],
+        ];
     }
 
     /**
@@ -133,6 +344,7 @@ class PublicReviewRewardService
                         'expires_at' => $rewardCode->expires_at
                             ? $rewardCode->expires_at->format('Y-m-d')
                             : null,
+                        'display_value' => $rewardCode->reward?->customerDisplayValue() ?? 0,
                     ],
                 ];
             } finally {
@@ -158,7 +370,7 @@ class PublicReviewRewardService
         /** @var MarketingReview|null $review */
         $review = MarketingReview::query()
             ->where('campaign_id', $campaign->id)
-            ->where('order_code', $orderCode)
+            ->whereIn('order_code', OrderCode::candidates($orderCode))
             ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
             ->first();
 
