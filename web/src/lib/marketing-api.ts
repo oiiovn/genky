@@ -814,12 +814,15 @@ export async function fetchPublicLandingAudio(
   orgId: number | string,
   signal?: AbortSignal,
 ): Promise<MarketingLandingAudioDto> {
-  const id = Number(orgId);
-  if (!Number.isFinite(id) || id <= 0) {
-    return { audio_url: null, file_name: null };
-  }
+  const query =
+    typeof orgId === "string" && orgId.startsWith("token:")
+      ? `token=${encodeURIComponent(orgId.slice(6))}`
+      : Number.isFinite(Number(orgId)) && Number(orgId) > 0
+        ? `org_id=${Number(orgId)}`
+        : "";
+  if (!query) return { audio_url: null, file_name: null };
   const res = await fetch(
-    `${apiUrl()}/public/review-reward/guide-audio?org_id=${id}`,
+    `${apiUrl()}/public/review-reward/guide-audio?${query}`,
     { cache: "no-store", signal },
   );
   if (!res.ok) throw new Error(await parseError(res));
@@ -922,12 +925,15 @@ export async function fetchPublicLanding(
   orgId: number | string,
   signal?: AbortSignal,
 ): Promise<MarketingLandingStyleDto> {
-  const id = Number(orgId);
-  if (!Number.isFinite(id) || id <= 0) {
-    return { style: {}, landing: {} };
-  }
+  const query =
+    typeof orgId === "string" && orgId.startsWith("token:")
+      ? `token=${encodeURIComponent(orgId.slice(6))}`
+      : Number.isFinite(Number(orgId)) && Number(orgId) > 0
+        ? `org_id=${Number(orgId)}`
+        : "";
+  if (!query) return { style: {}, landing: {} };
   const res = await fetch(
-    `${apiUrl()}/public/review-reward/landing?org_id=${id}`,
+    `${apiUrl()}/public/review-reward/landing?${query}`,
     { cache: "no-store", signal },
   );
   if (!res.ok) throw new Error(await parseError(res));
@@ -1037,4 +1043,50 @@ export async function spinPublicReviewReward(
     throw new Error(first || "Không quay thưởng được.");
   }
   return json;
+}
+
+export async function verifyPublicRewardByQrToken(
+  qrToken: string,
+  orderCode: string,
+): Promise<PublicSpinReward> {
+  const verifyRes = await fetch(`${apiUrl()}/public/review-reward/verify-order`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      campaign_token: qrToken,
+      order_code: orderCode,
+    }),
+  });
+  const verifyJson = (await verifyRes.json()) as {
+    claim_token?: string;
+    message?: string;
+    errors?: Record<string, string[]>;
+  };
+  if (!verifyRes.ok || !verifyJson.claim_token) {
+    const first = verifyJson.errors
+      ? Object.values(verifyJson.errors)[0]?.[0]
+      : verifyJson.message;
+    throw new Error(first || "Không xác minh được mã đơn.");
+  }
+
+  const claimRes = await fetch(
+    `${apiUrl()}/public/review-reward/claim/${encodeURIComponent(verifyJson.claim_token)}`,
+    { headers: { Accept: "application/json" } },
+  );
+  const claimJson = (await claimRes.json()) as {
+    reward?: PublicSpinReward;
+    message?: string;
+    errors?: Record<string, string[]>;
+  };
+  if (!claimRes.ok || !claimJson.reward) {
+    const first = claimJson.errors
+      ? Object.values(claimJson.errors)[0]?.[0]
+      : claimJson.message;
+    throw new Error(first || "Không lấy được mã quà.");
+  }
+
+  return claimJson.reward;
 }

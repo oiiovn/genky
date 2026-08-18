@@ -1,7 +1,21 @@
 "use client";
 
 import { Suspense } from "react";
-import ReviewVerifyClient from "./ReviewVerifyClient";
+import { useSearchParams } from "next/navigation";
+import { ReviewLandingPage } from "@/components/marketing/ReviewLandingPage";
+import { defaultReviewBoostSettings } from "@/lib/review-boost-settings";
+
+function ReviewVerifyLandingRoute() {
+  const search = useSearchParams();
+  const token = search.get("token") || search.get("campaign_token") || "";
+
+  return (
+    <ReviewLandingPage
+      settings={defaultReviewBoostSettings()}
+      qrToken={token}
+    />
+  );
+}
 
 export default function ReviewVerifyPage() {
   return (
@@ -12,7 +26,7 @@ export default function ReviewVerifyPage() {
         </div>
       }
     >
-      <ReviewVerifyClient />
+      <ReviewVerifyLandingRoute />
     </Suspense>
   );
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Marketing;
 
+use App\Models\MarketingQrCode;
 use App\Models\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -62,5 +63,50 @@ class MarketingLandingStyleTest extends TestCase
             ->assertJsonPath('data.landing.shopeeFoodUrl', 'https://shopeefood.vn/fresh')
             ->assertJsonPath('data.landing.grabFoodUrl', 'https://food.grab.com/fresh')
             ->assertJsonPath('data.landing.shopName', 'FRESH');
+    }
+
+    public function test_public_landing_can_resolve_style_by_qr_token(): void
+    {
+        $ctx = $this->seedOwner();
+
+        $this->withToken($ctx['token'])
+            ->postJson('/api/onboarding/branch', [
+                'name' => 'Tân Sơn',
+                'address' => '123 Tân Sơn',
+                'check_in_radius_meters' => 100,
+            ])
+            ->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->getJson('/api/marketing/reviews/form-meta')
+            ->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->putJson('/api/marketing/landing', [
+                'style' => ['primary' => '#2563EB'],
+                'landing' => [
+                    'shopName' => 'GENKY QR',
+                ],
+            ])
+            ->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $qr = $this->withToken($ctx['token'])
+            ->postJson('/api/marketing/qr-codes/ensure-branches')
+            ->assertOk()
+            ->json('data.0');
+        $this->app['auth']->forgetGuards();
+
+        $this->assertNotEmpty($qr['token']);
+        $this->assertTrue(
+            MarketingQrCode::withoutGlobalScopes()->where('token', $qr['token'])->exists()
+        );
+
+        $this->getJson('/api/public/review-reward/landing?token='.$qr['token'])
+            ->assertOk()
+            ->assertJsonPath('data.style.primary', '#2563EB')
+            ->assertJsonPath('data.landing.shopName', 'GENKY QR');
     }
 }

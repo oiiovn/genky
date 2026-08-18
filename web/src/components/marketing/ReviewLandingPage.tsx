@@ -20,6 +20,7 @@ import {
   fetchPublicLanding,
   fetchPublicLandingAudio,
   spinPublicReviewReward,
+  verifyPublicRewardByQrToken,
   type PublicSpinReward,
 } from "@/lib/marketing-api";
 import type {
@@ -146,11 +147,13 @@ function OrderAppButtons({
 export function ReviewLandingPage({
   settings,
   orgId,
+  qrToken,
   embedded = false,
 }: {
   settings: ReviewBoostFullSettings;
   preview?: boolean;
   orgId?: number | string;
+  qrToken?: string;
   embedded?: boolean;
 }) {
   const [orderCode, setOrderCode] = useState("");
@@ -221,12 +224,14 @@ export function ReviewLandingPage({
     return () => ac.abort();
   }, [embedded]);
 
+  const publicContext = qrToken ? `token:${qrToken}` : (orgId ?? "");
+
   useEffect(() => {
     if (embedded) return;
     const ac = new AbortController();
     void (async () => {
       try {
-        let audio = await fetchPublicLandingAudio(orgId ?? "", ac.signal);
+        let audio = await fetchPublicLandingAudio(publicContext, ac.signal);
         if (!audio.audio_url) {
           audio = await fetchMarketingLandingAudio(ac.signal);
         }
@@ -242,14 +247,14 @@ export function ReviewLandingPage({
       }
     })();
     return () => ac.abort();
-  }, [orgId, embedded]);
+  }, [publicContext, embedded]);
 
   useEffect(() => {
     if (embedded) return;
     const ac = new AbortController();
     void (async () => {
       try {
-        const remote = await fetchPublicLanding(orgId ?? "", ac.signal);
+        const remote = await fetchPublicLanding(publicContext, ac.signal);
         if (ac.signal.aborted) return;
         setRemoteLanding(remote.landing as Partial<ReviewLandingCopy>);
         setRemoteStyle(remote.style);
@@ -258,7 +263,7 @@ export function ReviewLandingPage({
       }
     })();
     return () => ac.abort();
-  }, [orgId, embedded]);
+  }, [publicContext, embedded]);
 
   async function copyReward() {
     if (!won) return;
@@ -308,8 +313,10 @@ export function ReviewLandingPage({
     setSpinning(true);
     setMessage(null);
     try {
-      const result = await spinPublicReviewReward(orgId ?? "", code);
-      setWon(result.reward);
+      const reward = qrToken
+        ? await verifyPublicRewardByQrToken(qrToken, code)
+        : (await spinPublicReviewReward(orgId ?? "", code)).reward;
+      setWon(reward);
       setCopied(false);
       setMessage(null);
     } catch (e) {
