@@ -16,7 +16,9 @@ type ParsedItem = {
 };
 
 function normalizeOrderCode(raw: string): string {
-  const code = raw.trim();
+  const code = raw.trim().replace(/[–—]/g, "-").replace(/\s+/g, "");
+  const grab = code.match(/^GF-?(\d{3,})$/i);
+  if (grab) return `GF-${grab[1]}`;
   if (/^\d{4,}[-–]\d{6,}$/.test(code)) return `#${code}`;
   return code;
 }
@@ -98,7 +100,7 @@ function parsePasteMany(text: string): ParsedItem[] {
   for (const chunk of chunks) {
     const c = chunk.trim();
     if (!c) continue;
-    const codes = [...c.matchAll(/#?\d{4,}[-–]\d{6,}/g)].map((m) =>
+    const codes = [...c.matchAll(/GF-?\d{3,}|#?\d{4,}[-–]\d{6,}/gi)].map((m) =>
       normalizeOrderCode(m[0]),
     );
     if (codes.length !== 1) continue;
@@ -113,7 +115,7 @@ function parsePasteMany(text: string): ParsedItem[] {
   }
   if (fromChunks.length > 1) return uniqueByCode(fromChunks);
 
-  const matches = [...trimmed.matchAll(/#?\d{4,}[-–]\d{6,}/g)];
+  const matches = [...trimmed.matchAll(/GF-?\d{3,}|#?\d{4,}[-–]\d{6,}/gi)];
   const list =
     matches.length > 0
       ? matches

@@ -8,6 +8,7 @@ import {
   Download,
   ExternalLink,
   GripVertical,
+  Gift,
   Image as ImageIcon,
   Loader2,
   Palette,
@@ -17,10 +18,13 @@ import {
   Settings2,
   Trash2,
   Type,
+  Upload,
   Volume2,
   X,
 } from "lucide-react";
-import type { Branch } from "@/lib/api";
+import { ReviewLandingPage } from "@/components/marketing/ReviewLandingPage";
+import { Iphone16ProFrame } from "@/components/marketing/Iphone16ProFrame";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   clearMarketingRewardImage,
   createMarketingChannel,
@@ -31,6 +35,8 @@ import {
   fetchMarketingBranchQrs,
   fetchMarketingChannels,
   fetchMarketingLandingAudio,
+  fetchMarketingLanding,
+  updateMarketingLanding,
   fetchMarketingRewardCodeSettings,
   fetchMarketingRewards,
   updateMarketingRewardCodeSettings,
@@ -49,6 +55,7 @@ import {
 import {
   defaultReviewBoostSettings,
   loadReviewBoostSettings,
+  mergeLandingCopy,
   previewGiftCode,
   saveReviewBoostSettings,
   writeReviewLandingPreviewDraft,
@@ -88,6 +95,50 @@ function formatVnd(value: number): string {
   return new Intl.NumberFormat("vi-VN").format(value) + "đ";
 }
 
+function patternFromSettings(settings: {
+  codeFormat: ReviewCodeFormatId;
+  codePrefix: string;
+  codeLength: number;
+}): string {
+  if (settings.codeFormat === "xxxx") return "XXXX-XXXX";
+  if (settings.codeFormat === "gen6") return "GEN-XXXXXX";
+  if (settings.codeFormat === "gen4") return "GEN-XXXX";
+  const prefix = (settings.codePrefix || "GEN").toUpperCase();
+  return `${prefix}-${"X".repeat(settings.codeLength || 4)}`;
+}
+
+function formatFromApi(
+  pattern: string,
+  prefix: string,
+  length: number,
+): {
+  codeFormat: ReviewCodeFormatId;
+  codePrefix: string;
+  codeLength: number;
+} {
+  const pat = (pattern || "").toUpperCase();
+  if (pat === "XXXX-XXXX") {
+    return { codeFormat: "xxxx", codePrefix: "", codeLength: 8 };
+  }
+  if (pat === "GEN-XXXXXX" || (prefix === "GEN" && length === 6 && pat === "")) {
+    return { codeFormat: "gen6", codePrefix: "GEN", codeLength: 6 };
+  }
+  if (pat === "GEN-XXXX" || (prefix === "GEN" && length === 4 && (!pat || pat === "GEN-XXXX"))) {
+    return { codeFormat: "gen4", codePrefix: "GEN", codeLength: 4 };
+  }
+  if (prefix === "GEN" && length === 6) {
+    return { codeFormat: "gen6", codePrefix: "GEN", codeLength: 6 };
+  }
+  if (prefix === "GEN" && length === 4 && pat !== "XXXX-XXXX") {
+    return { codeFormat: "gen4", codePrefix: prefix, codeLength: length };
+  }
+  return {
+    codeFormat: "custom",
+    codePrefix: prefix,
+    codeLength: length,
+  };
+}
+
 function Toggle({
   checked,
   onChange,
@@ -116,14 +167,6 @@ function Toggle({
         )}
       />
     </button>
-  );
-}
-
-function Note({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-      {children}
-    </p>
   );
 }
 
@@ -226,10 +269,10 @@ function SettingsQrPreview({
       try {
         const { default: QRCode } = await import("qrcode");
         const url = await QRCode.toDataURL(value, {
-          width: 220,
-          margin: 1,
-          errorCorrectionLevel: "M",
-          color: { dark: "#0f172a", light: "#ffffff" },
+          width: 280,
+          margin: 4,
+          errorCorrectionLevel: "L",
+          color: { dark: "#111111", light: "#ffffff" },
         });
         if (!cancelled) setDataUrl(url);
       } catch {
@@ -251,12 +294,12 @@ function SettingsQrPreview({
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+      <div className="rounded-2xl border border-slate-100 bg-white p-4">
         {dataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={dataUrl} alt="QR nhập mã" className="h-40 w-40" />
+          <img src={dataUrl} alt="QR nhập mã" className="h-44 w-44" />
         ) : (
-          <div className="flex h-40 w-40 items-center justify-center text-xs text-slate-400">
+          <div className="flex h-44 w-44 items-center justify-center text-xs text-slate-400">
             {value ? "Đang tạo QR…" : "Chưa có QR"}
           </div>
         )}
@@ -315,6 +358,13 @@ export function ReviewBoostSettingsPanel({
   );
   const [copiedQrId, setCopiedQrId] = useState<number | null>(null);
   const [audioBusy, setAudioBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<
+    | { kind: "channel"; item: ReviewChannelSetting }
+    | { kind: "gift"; item: ReviewGiftItemSetting }
+    | { kind: "audio" }
+    | null
+  >(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     setSettings(loadReviewBoostSettings(orgId));
@@ -437,13 +487,38 @@ export function ReviewBoostSettingsPanel({
     const ac = new AbortController();
     void (async () => {
       try {
+        const remote = await fetchMarketingLanding(ac.signal);
+        if (ac.signal.aborted) return;
+        setSettings((prev) => ({
+          ...prev,
+          style: { ...prev.style, ...remote.style },
+          landing: mergeLandingCopy(
+            prev.landing,
+            remote.landing as Partial<ReviewLandingCopy>,
+          ),
+        }));
+      } catch {
+        /* giữ bản local */
+      }
+    })();
+    return () => ac.abort();
+  }, [orgId]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    void (async () => {
+      try {
         const cfg = await fetchMarketingRewardCodeSettings(ac.signal);
         if (ac.signal.aborted) return;
         const type = String(cfg.expiry_type || "DAYS").toUpperCase();
+        const fmt = formatFromApi(
+          cfg.pattern,
+          cfg.prefix || "GEN",
+          cfg.length || 4,
+        );
         setSettings((prev) => ({
           ...prev,
-          codePrefix: cfg.prefix || prev.codePrefix,
-          codeLength: cfg.length || prev.codeLength,
+          ...fmt,
           useLetters: cfg.use_letters,
           useDigits: cfg.use_numbers,
           excludeAmbiguous:
@@ -469,8 +544,6 @@ export function ReviewBoostSettingsPanel({
   }, [orgId]);
 
   const codePreview = useMemo(() => previewGiftCode(settings), [settings]);
-  const enabledChannels = settings.channels.filter((c) => c.enabled).length;
-  const enabledGifts = settings.gifts.filter((g) => g.enabled).length;
   const sortedChannels = useMemo(
     () =>
       [...settings.channels].sort(
@@ -497,6 +570,26 @@ export function ReviewBoostSettingsPanel({
 
   function patch(partial: Partial<ReviewBoostFullSettings>) {
     setSettings((prev) => ({ ...prev, ...partial }));
+  }
+
+  function applyCodeFormat(id: ReviewCodeFormatId) {
+    if (id === "gen4") {
+      patch({ codeFormat: id, codePrefix: "GEN", codeLength: 4 });
+      return;
+    }
+    if (id === "gen6") {
+      patch({ codeFormat: id, codePrefix: "GEN", codeLength: 6 });
+      return;
+    }
+    if (id === "xxxx") {
+      patch({ codeFormat: id, codePrefix: "", codeLength: 8 });
+      return;
+    }
+    patch({
+      codeFormat: id,
+      codePrefix: settings.codePrefix || "GEN",
+      codeLength: settings.codeLength || 4,
+    });
   }
 
   function patchLanding(partial: Partial<ReviewLandingCopy>) {
@@ -629,8 +722,7 @@ export function ReviewBoostSettingsPanel({
   }
 
   async function removeChannel(ch: ReviewChannelSetting) {
-    if (!window.confirm(`Xoá kênh “${ch.name}”?`)) return;
-    setChannelBusy(true);
+    setDeleteBusy(true);
     try {
       await deleteMarketingChannel(ch.id);
       setSettings((prev) => ({
@@ -638,10 +730,12 @@ export function ReviewBoostSettingsPanel({
         channels: prev.channels.filter((c) => c.id !== ch.id),
       }));
       if (editingChannelId === ch.id) setEditingChannelId(null);
+      setPendingDelete(null);
       showToast("Đã xoá kênh.");
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : "Không xoá được kênh.");
     } finally {
+      setDeleteBusy(false);
       setChannelBusy(false);
     }
   }
@@ -807,8 +901,7 @@ export function ReviewBoostSettingsPanel({
   }
 
   async function removeGift(g: ReviewGiftItemSetting) {
-    if (!window.confirm(`Xoá món “${g.name}”?`)) return;
-    setGiftBusy(true);
+    setDeleteBusy(true);
     try {
       await deleteMarketingReward(g.id);
       setSettings((prev) => ({
@@ -816,10 +909,12 @@ export function ReviewBoostSettingsPanel({
         gifts: prev.gifts.filter((item) => item.id !== g.id),
       }));
       if (editingGiftId === g.id) setEditingGiftId(null);
+      setPendingDelete(null);
       showToast("Đã xoá món.");
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : "Không xoá được món.");
     } finally {
+      setDeleteBusy(false);
       setGiftBusy(false);
     }
   }
@@ -847,16 +942,34 @@ export function ReviewBoostSettingsPanel({
   }
 
   async function removeGuideAudio() {
+    setDeleteBusy(true);
     setAudioBusy(true);
     try {
       await clearMarketingLandingAudio();
       patchLanding({ guideAudioUrl: null, guideAudioName: "" });
+      setPendingDelete(null);
       showToast("Đã xoá bản ghi hướng dẫn.");
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : "Không xoá được bản ghi.");
     } finally {
+      setDeleteBusy(false);
       setAudioBusy(false);
     }
+  }
+
+  function confirmPendingDelete() {
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "channel") {
+      setChannelBusy(true);
+      void removeChannel(pendingDelete.item);
+      return;
+    }
+    if (pendingDelete.kind === "gift") {
+      setGiftBusy(true);
+      void removeGift(pendingDelete.item);
+      return;
+    }
+    void removeGuideAudio();
   }
 
   async function save() {
@@ -866,8 +979,13 @@ export function ReviewBoostSettingsPanel({
       qrUrl: url || settings.qrUrl,
     });
     try {
+      await updateMarketingLanding({
+        style: settings.style,
+        landing: settings.landing,
+      });
       await updateMarketingRewardCodeSettings({
         prefix: settings.codePrefix,
+        pattern: patternFromSettings(settings),
         length: settings.codeLength,
         use_letters: settings.useLetters,
         use_numbers: settings.useDigits,
@@ -886,7 +1004,7 @@ export function ReviewBoostSettingsPanel({
         reward_before_review: settings.rewardBeforeReview,
       });
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : "Không lưu được hạn mã.");
+      showToast(e instanceof Error ? e.message : "Không lưu được cài đặt.");
       return;
     }
     onSaved?.(url);
@@ -953,7 +1071,17 @@ export function ReviewBoostSettingsPanel({
   }
 
   return (
-    <div className="relative space-y-5 pb-20">
+    <div className="relative space-y-5">
+      <div className="sticky top-0 z-10 flex justify-end bg-slate-50/90 py-1 backdrop-blur">
+        <button
+          type="button"
+          onClick={save}
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700"
+        >
+          <Save className="h-4 w-4" />
+          Lưu cài đặt
+        </button>
+      </div>
       <div className="grid gap-5 lg:grid-cols-3">
         {/* 1 Channels */}
         <Card
@@ -974,18 +1102,9 @@ export function ReviewBoostSettingsPanel({
         >
           {channelsError ? (
             <p className="mb-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-              Lỗi API kênh: {channelsError}
+              {channelsError}
             </p>
-          ) : channelsLoading ? (
-            <p className="mb-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              Đang tải kênh từ API…
-            </p>
-          ) : (
-            <p className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-              Đã nối API · {sortedChannels.length} kênh · {enabledChannels} đang
-              bật (ShopeeFood / GrabFood mặc định).
-            </p>
-          )}
+          ) : null}
           {channelsLoading ? (
             <div className="h-32 animate-pulse rounded-xl bg-slate-100" />
           ) : (
@@ -1006,7 +1125,7 @@ export function ReviewBoostSettingsPanel({
                     colSpan={5}
                     className="py-8 text-center text-sm text-slate-400"
                   >
-                    Chưa có kênh. Nhấn “Thêm kênh” hoặc seed mặc định.
+                    Chưa có kênh.
                   </td>
                 </tr>
               ) : null}
@@ -1114,7 +1233,9 @@ export function ReviewBoostSettingsPanel({
                           className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
                           aria-label="Xóa"
                           disabled={channelBusy}
-                          onClick={() => void removeChannel(ch)}
+                          onClick={() =>
+                            setPendingDelete({ kind: "channel", item: ch })
+                          }
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -1126,10 +1247,6 @@ export function ReviewBoostSettingsPanel({
             </tbody>
           </table>
           )}
-          <Note>
-            Chỉ các kênh đang bật mới được áp dụng trong chương trình. Mặc định
-            có ShopeeFood và GrabFood — kênh khác tự thêm.
-          </Note>
         </Card>
 
         {/* 2 Gifts */}
@@ -1151,159 +1268,86 @@ export function ReviewBoostSettingsPanel({
         >
           {giftsError ? (
             <p className="mb-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-              Lỗi API món: {giftsError}
+              {giftsError}
             </p>
-          ) : giftsLoading ? (
-            <p className="mb-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              Đang tải món từ API…
-            </p>
-          ) : (
-            <p className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-              Đã nối API · {sortedGifts.length} món · {enabledGifts} đang bật.
-            </p>
-          )}
+          ) : null}
           {giftsLoading ? (
-            <div className="h-32 animate-pulse rounded-xl bg-slate-100" />
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-[88px] animate-pulse rounded-2xl bg-slate-100"
+                />
+              ))}
+            </div>
+          ) : sortedGifts.length === 0 ? (
+            <button
+              type="button"
+              onClick={openAddGiftModal}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 py-8 text-sm font-medium text-slate-400 hover:border-blue-300 hover:text-blue-600"
+            >
+              <Gift className="h-4 w-4" />
+              Chưa có món. Thêm món tặng
+            </button>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] tracking-wide text-slate-400 uppercase">
-                  <th className="pb-2 font-semibold">Tên món</th>
-                  <th className="pb-2 font-semibold">Ảnh</th>
-                  <th className="pb-2 font-semibold">Chi phí</th>
-                  <th className="pb-2 font-semibold">Trị giá</th>
-                  <th className="pb-2 font-semibold">TT</th>
-                  <th className="pb-2 text-right font-semibold"> </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedGifts.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="py-8 text-center text-sm text-slate-400"
-                    >
-                      Chưa có món. Nhấn “Thêm món”.
-                    </td>
-                  </tr>
-                ) : null}
-                {sortedGifts.map((g) => {
-                  const editing = editingGiftId === g.id;
-                  return (
-                    <tr key={g.id} className="border-t border-slate-100 align-top">
-                      <td className="py-2.5">
+            <div className="space-y-2.5">
+              {sortedGifts.map((g) => {
+                const editing = editingGiftId === g.id;
+                return (
+                  <article
+                    key={g.id}
+                    className="flex gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm"
+                  >
+                    <div className="flex w-[72px] shrink-0 flex-col items-center gap-1">
+                      {g.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={g.imageUrl}
+                          alt={g.name}
+                          className="h-[72px] w-[72px] rounded-xl object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-[72px] w-[72px] items-center justify-center rounded-xl bg-slate-50 text-2xl ring-1 ring-slate-100">
+                          🎁
+                        </span>
+                      )}
+                      <label className="inline-flex cursor-pointer items-center gap-0.5 text-[10px] font-semibold text-blue-600 hover:underline">
+                        <Upload className="h-3 w-3" />
+                        Tải ảnh
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          disabled={giftBusy}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] ?? null;
+                            e.target.value = "";
+                            void onGiftImageSelected(g, file);
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
                         {editing ? (
                           <input
                             value={g.name}
                             onChange={(e) =>
                               patchGiftLocal(g.id, { name: e.target.value })
                             }
-                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                            className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-sm font-semibold"
                             placeholder="Tên món"
                           />
                         ) : (
-                          <div className="font-medium text-slate-800">
+                          <p className="truncate text-sm font-bold text-slate-800">
                             {g.name}
-                          </div>
+                          </p>
                         )}
-                      </td>
-                      <td className="py-2.5">
-                        <div className="flex items-center gap-2">
-                          {g.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={g.imageUrl}
-                              alt={g.name}
-                              className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200"
-                            />
-                          ) : (
-                            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-lg ring-1 ring-slate-200">
-                              🎁
-                            </span>
-                          )}
-                          <div className="flex flex-col gap-1">
-                            <label className="cursor-pointer text-[11px] font-semibold text-blue-600 hover:underline">
-                              Tải ảnh
-                              <input
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp"
-                                className="hidden"
-                                disabled={giftBusy}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0] ?? null;
-                                  e.target.value = "";
-                                  void onGiftImageSelected(g, file);
-                                }}
-                              />
-                            </label>
-                            {g.imageUrl ? (
-                              <button
-                                type="button"
-                                disabled={giftBusy}
-                                onClick={() => void removeGiftImage(g)}
-                                className="text-left text-[11px] text-slate-400 hover:text-rose-500"
-                              >
-                                Xoá ảnh
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-2.5">
-                        {editing ? (
-                          <input
-                            type="number"
-                            min={0}
-                            step={1000}
-                            value={g.value}
-                            onChange={(e) =>
-                              patchGiftLocal(g.id, {
-                                value: Math.max(0, Number(e.target.value) || 0),
-                              })
-                            }
-                            className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm tabular-nums"
-                          />
-                        ) : (
-                          <span className="tabular-nums text-slate-700">
-                            {formatVnd(g.value)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5">
-                        {editing ? (
-                          <input
-                            type="number"
-                            min={0}
-                            step={1000}
-                            value={g.displayValue ?? g.value}
-                            onChange={(e) =>
-                              patchGiftLocal(g.id, {
-                                displayValue: Math.max(
-                                  0,
-                                  Number(e.target.value) || 0,
-                                ),
-                              })
-                            }
-                            className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm tabular-nums"
-                          />
-                        ) : (
-                          <span className="tabular-nums text-slate-700">
-                            {formatVnd(g.displayValue || g.value)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5">
-                        <Toggle
-                          checked={g.enabled}
-                          label={`Bật ${g.name}`}
-                          onChange={(enabled) => void toggleGift(g, enabled)}
-                        />
-                      </td>
-                      <td className="py-2.5 text-right">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex shrink-0">
                           <button
                             type="button"
-                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-50"
+                            className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-blue-600"
                             aria-label={editing ? "Lưu" : "Sửa"}
                             disabled={giftBusy}
                             onClick={() => {
@@ -1319,25 +1363,98 @@ export function ReviewBoostSettingsPanel({
                           </button>
                           <button
                             type="button"
-                            className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
+                            className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
                             aria-label="Xóa"
                             disabled={giftBusy}
-                            onClick={() => void removeGift(g)}
+                            onClick={() =>
+                              setPendingDelete({ kind: "gift", item: g })
+                            }
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-3 items-end gap-2">
+                        <div>
+                          <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                            Chi phí
+                          </p>
+                          {editing ? (
+                            <input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              value={g.value}
+                              onChange={(e) =>
+                                patchGiftLocal(g.id, {
+                                  value: Math.max(
+                                    0,
+                                    Number(e.target.value) || 0,
+                                  ),
+                                })
+                              }
+                              className="mt-0.5 w-full rounded-lg border border-slate-200 px-1.5 py-1 text-xs tabular-nums"
+                            />
+                          ) : (
+                            <p className="mt-0.5 text-sm font-semibold text-slate-800 tabular-nums">
+                              {formatVnd(g.value)}
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                            Trị giá
+                          </p>
+                          {editing ? (
+                            <input
+                              type="number"
+                              min={0}
+                              step={1000}
+                              value={g.displayValue ?? g.value}
+                              onChange={(e) =>
+                                patchGiftLocal(g.id, {
+                                  displayValue: Math.max(
+                                    0,
+                                    Number(e.target.value) || 0,
+                                  ),
+                                })
+                              }
+                              className="mt-0.5 w-full rounded-lg border border-slate-200 px-1.5 py-1 text-xs tabular-nums"
+                            />
+                          ) : (
+                            <p className="mt-0.5 text-sm font-semibold text-slate-800 tabular-nums">
+                              {formatVnd(g.displayValue || g.value)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                            Trạng thái
+                          </p>
+                          <div className="mt-0.5 flex items-center gap-1.5">
+                            <Toggle
+                              checked={g.enabled}
+                              label={`Bật ${g.name}`}
+                              onChange={(enabled) => void toggleGift(g, enabled)}
+                            />
+                          </div>
+                          <p
+                            className={clsx(
+                              "mt-0.5 text-[10px] font-semibold",
+                              g.enabled ? "text-blue-600" : "text-slate-400",
+                            )}
+                          >
+                            {g.enabled ? "Đang bật" : "Đang tắt"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           )}
-          <Note>
-            Món đang bật được gắn chiến dịch để nhân viên cấp mã khi xác minh
-            đánh giá.
-          </Note>
         </Card>
 
         {/* 3 Code format */}
@@ -1361,7 +1478,7 @@ export function ReviewBoostSettingsPanel({
                   type="radio"
                   name="codeFormat"
                   checked={settings.codeFormat === opt.id}
-                  onChange={() => patch({ codeFormat: opt.id })}
+                  onChange={() => applyCodeFormat(opt.id)}
                   className="accent-blue-600"
                 />
                 {opt.label}
@@ -1373,7 +1490,6 @@ export function ReviewBoostSettingsPanel({
             <p className="font-mono text-lg font-bold tracking-wider text-blue-700">
               {codePreview}
             </p>
-            <p className="mt-1 text-xs text-blue-600/80">10.000 mã khả dụng</p>
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1430,7 +1546,6 @@ export function ReviewBoostSettingsPanel({
               Loại 0/O · 1/I
             </label>
           </div>
-          <Note>Mã tặng không phân biệt chữ hoa chữ thường.</Note>
         </Card>
 
         {/* 4 Expire */}
@@ -1498,9 +1613,6 @@ export function ReviewBoostSettingsPanel({
               </label>
             ))}
           </div>
-          <Note>
-            Khách hàng cần đổi quà trước thời hạn để còn hiệu lực.
-          </Note>
           <label
             className={clsx(
               "mt-3 flex flex-col gap-1 rounded-xl border px-3 py-3 text-sm",
@@ -1547,17 +1659,13 @@ export function ReviewBoostSettingsPanel({
             <p className="mb-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
               {qrsError}
             </p>
-          ) : (
-            <p className="mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-              Khách quét QR chi nhánh A chỉ đổi quà cho đơn của chi nhánh A.
-            </p>
-          )}
+          ) : null}
 
           {qrsLoading ? (
             <div className="h-40 animate-pulse rounded-xl bg-slate-100" />
           ) : branchQrs.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-400">
-              Chưa có QR. Bấm “Đồng bộ QR” (cần chiến dịch đang chạy).
+              Chưa có QR.
             </p>
           ) : (
             <div className="space-y-4">
@@ -1819,7 +1927,7 @@ export function ReviewBoostSettingsPanel({
                         <button
                           type="button"
                           disabled={audioBusy}
-                          onClick={() => void removeGuideAudio()}
+                          onClick={() => setPendingDelete({ kind: "audio" })}
                           className="text-xs text-rose-500 hover:underline"
                         >
                           Xoá bản ghi
@@ -1909,16 +2017,20 @@ export function ReviewBoostSettingsPanel({
                       patchLanding({ orderPlaceholder })
                     }
                   />
-                  <StyleText
-                    label="Nút mua ngay"
-                    value={landing.buyNowLabel}
-                    onChange={(buyNowLabel) => patchLanding({ buyNowLabel })}
-                  />
                   <div className="sm:col-span-2">
                     <StyleText
-                      label="Link Shopee (nút Mua ngay)"
-                      value={landing.buyNowUrl}
-                      onChange={(buyNowUrl) => patchLanding({ buyNowUrl })}
+                      label="Link ShopeeFood"
+                      value={landing.shopeeFoodUrl ?? ""}
+                      onChange={(shopeeFoodUrl) =>
+                        patchLanding({ shopeeFoodUrl, buyNowUrl: shopeeFoodUrl })
+                      }
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <StyleText
+                      label="Link GrabFood"
+                      value={landing.grabFoodUrl ?? ""}
+                      onChange={(grabFoodUrl) => patchLanding({ grabFoodUrl })}
                     />
                   </div>
                   <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
@@ -1972,50 +2084,14 @@ export function ReviewBoostSettingsPanel({
               ) : null}
             </div>
 
-            <div className="mx-auto w-[200px] shrink-0 space-y-3">
-              <div
-                className="overflow-hidden rounded-[1.4rem] border-4 border-slate-800 shadow-lg"
-                style={{
-                  background: settings.style.background,
-                  fontFamily: landing.fontFamily,
-                }}
-              >
-                <div className="px-3 pt-3 pb-4 text-center">
-                  <p
-                    className="truncate text-[10px] font-bold"
-                    style={{ color: settings.style.text }}
-                  >
-                    {landing.shopName}
-                  </p>
-                  <p
-                    className="mt-2 text-[11px] leading-snug font-extrabold"
-                    style={{ color: settings.style.primary }}
-                  >
-                    {landing.headlineAccent}
-                    <br />
-                    {landing.headline}
-                  </p>
-                  <div className="mx-auto mt-3 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-2xl shadow-sm">
-                    🎁
-                  </div>
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] text-slate-400">
-                    {landing.orderPlaceholder}
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-2 w-full py-1.5 text-[9px] font-bold text-white"
-                    style={{
-                      background: settings.style.primary,
-                      borderRadius: landing.buttonRadius,
-                    }}
-                  >
-                    {landing.confirmLabel === "Xác nhận"
-                      ? "Quay Thưởng"
-                      : landing.confirmLabel}
-                  </button>
-                </div>
-              </div>
-
+            <div className="sticky top-4 mx-auto w-fit shrink-0 space-y-2 lg:mx-0">
+              <Iphone16ProFrame>
+                <ReviewLandingPage
+                  settings={settings}
+                  orgId={orgId}
+                  embedded
+                />
+              </Iphone16ProFrame>
               <button
                 type="button"
                 onClick={() => {
@@ -2038,17 +2114,6 @@ export function ReviewBoostSettingsPanel({
             </div>
           </div>
         </Card>
-      </div>
-
-      <div className="sticky bottom-3 z-10 flex justify-end">
-        <button
-          type="button"
-          onClick={save}
-          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700"
-        >
-          <Save className="h-4 w-4" />
-          Lưu cài đặt
-        </button>
       </div>
 
       {addGiftOpen ? (
@@ -2201,6 +2266,31 @@ export function ReviewBoostSettingsPanel({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {pendingDelete ? (
+        <ConfirmDialog
+          open
+          title={
+            pendingDelete.kind === "channel"
+              ? "Xoá kênh"
+              : pendingDelete.kind === "gift"
+                ? "Xoá món tặng"
+                : "Xoá bản ghi"
+          }
+          message={
+            pendingDelete.kind === "channel"
+              ? `Xoá kênh “${pendingDelete.item.name}”?`
+              : pendingDelete.kind === "gift"
+                ? `Xoá món “${pendingDelete.item.name}”?`
+                : "Xoá bản ghi hướng dẫn nhận thưởng?"
+          }
+          loading={deleteBusy}
+          onClose={() => {
+            if (!deleteBusy) setPendingDelete(null);
+          }}
+          onConfirm={() => confirmPendingDelete()}
+        />
       ) : null}
 
       {toast ? (

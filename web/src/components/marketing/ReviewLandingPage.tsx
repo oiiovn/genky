@@ -17,6 +17,7 @@ import {
 import {
   fetchMarketingLandingAudio,
   fetchMarketingRewards,
+  fetchPublicLanding,
   fetchPublicLandingAudio,
   spinPublicReviewReward,
   type PublicSpinReward,
@@ -24,6 +25,8 @@ import {
 import type {
   ReviewBoostFullSettings,
   ReviewGiftItemSetting,
+  ReviewLandingCopy,
+  ReviewStyleSettings,
 } from "@/lib/review-boost-settings";
 
 function enabledGifts(items: ReviewGiftItemSetting[]): ReviewGiftItemSetting[] {
@@ -86,27 +89,104 @@ function giftValue(gift: { displayValue?: number; value: number }): number {
     : gift.value;
 }
 
+function toHref(url: string): string {
+  const t = url.trim();
+  if (!t) return "";
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
+}
+
+function OrderAppButtons({
+  shopeeUrl,
+  grabUrl,
+  radius,
+  className = "",
+}: {
+  shopeeUrl: string;
+  grabUrl: string;
+  radius: string;
+  className?: string;
+}) {
+  const apps = [
+    shopeeUrl
+      ? { id: "shopee", label: "ShopeeFood", href: toHref(shopeeUrl), bg: "#EE4D2D" }
+      : null,
+    grabUrl
+      ? { id: "grab", label: "GrabFood", href: toHref(grabUrl), bg: "#00B14F" }
+      : null,
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
+
+  if (apps.length === 0) return null;
+
+  return (
+    <div
+      className={className}
+      style={{
+        display: "grid",
+        gridTemplateColumns: apps.length > 1 ? "1fr 1fr" : "1fr",
+        gap: 8,
+      }}
+    >
+      {apps.map((app) => (
+        <a
+          key={app.id}
+          href={app.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-white"
+          style={{ background: app.bg, borderRadius: radius }}
+        >
+          {app.label}
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export function ReviewLandingPage({
   settings,
   orgId,
+  embedded = false,
 }: {
   settings: ReviewBoostFullSettings;
   preview?: boolean;
   orgId?: number | string;
+  embedded?: boolean;
 }) {
-  const copy = settings.landing;
-  const style = settings.style;
   const [orderCode, setOrderCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [won, setWon] = useState<PublicSpinReward | null>(null);
-  const [gifts, setGifts] = useState(() => enabledGifts(settings.gifts));
-  const [audioUrl, setAudioUrl] = useState<string | null>(
-    copy.guideAudioUrl ?? null,
+  const settingsGifts = useMemo(
+    () => enabledGifts(settings.gifts),
+    [settings.gifts],
+  );
+  const [apiGifts, setApiGifts] = useState<ReviewGiftItemSetting[] | null>(null);
+  const [apiAudioUrl, setApiAudioUrl] = useState<string | null | undefined>(
+    undefined,
   );
   const [playing, setPlaying] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [remoteLanding, setRemoteLanding] = useState<Partial<ReviewLandingCopy>>(
+    {},
+  );
+  const [remoteStyle, setRemoteStyle] = useState<Partial<ReviewStyleSettings>>(
+    {},
+  );
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const copy = {
+    ...settings.landing,
+    ...remoteLanding,
+  };
+  const style = {
+    ...settings.style,
+    ...remoteStyle,
+  };
+  const gifts = embedded ? settingsGifts : (apiGifts ?? settingsGifts);
+  const guideSrc = embedded
+    ? (copy.guideAudioUrl ?? null)
+    : (apiAudioUrl !== undefined ? apiAudioUrl : (copy.guideAudioUrl ?? null));
 
   const notes = copy.notes
     .split("\n")
@@ -114,18 +194,13 @@ export function ReviewLandingPage({
     .filter(Boolean);
 
   useEffect(() => {
-    const next = enabledGifts(settings.gifts);
-    if (next.length === 0) return;
-    setGifts(next);
-  }, [settings.gifts]);
-
-  useEffect(() => {
+    if (embedded) return;
     const ac = new AbortController();
     void (async () => {
       try {
         const rows = await fetchMarketingRewards(ac.signal);
         if (ac.signal.aborted) return;
-        setGifts(
+        setApiGifts(
           enabledGifts(
             rows.map((row) => ({
               id: String(row.id),
@@ -144,9 +219,10 @@ export function ReviewLandingPage({
       }
     })();
     return () => ac.abort();
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
+    if (embedded) return;
     const ac = new AbortController();
     void (async () => {
       try {
@@ -155,18 +231,34 @@ export function ReviewLandingPage({
           audio = await fetchMarketingLandingAudio(ac.signal);
         }
         if (ac.signal.aborted) return;
-        if (audio.audio_url) setAudioUrl(audio.audio_url);
+        setApiAudioUrl(audio.audio_url || null);
       } catch {
         try {
           const audio = await fetchMarketingLandingAudio(ac.signal);
-          if (!ac.signal.aborted && audio.audio_url) setAudioUrl(audio.audio_url);
+          if (!ac.signal.aborted) setApiAudioUrl(audio.audio_url || null);
         } catch {
           /* giữ URL từ bản nháp */
         }
       }
     })();
     return () => ac.abort();
-  }, [orgId]);
+  }, [orgId, embedded]);
+
+  useEffect(() => {
+    if (embedded) return;
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const remote = await fetchPublicLanding(orgId ?? "", ac.signal);
+        if (ac.signal.aborted) return;
+        setRemoteLanding(remote.landing as Partial<ReviewLandingCopy>);
+        setRemoteStyle(remote.style);
+      } catch {
+        /* giữ bản nháp local */
+      }
+    })();
+    return () => ac.abort();
+  }, [orgId, embedded]);
 
   async function copyReward() {
     if (!won) return;
@@ -181,9 +273,9 @@ export function ReviewLandingPage({
   }
 
   const expireLabel = formatExpire(won?.expires_at ?? null);
-  const buyUrl = (copy.buyNowUrl || "").trim();
+  const shopeeUrl = (copy.shopeeFoodUrl || copy.buyNowUrl || "").trim();
+  const grabUrl = (copy.grabFoodUrl || "").trim();
   const radius = `${copy.buttonRadius}px`;
-  const guideSrc = audioUrl || copy.guideAudioUrl;
 
   function toggleGuideAudio() {
     const el = audioRef.current;
@@ -204,6 +296,10 @@ export function ReviewLandingPage({
   }
 
   async function onConfirm() {
+    if (embedded) {
+      setMessage("Đây là bản xem trước. Mở «Xem thử trang» để quay thật.");
+      return;
+    }
     const code = orderCode.trim();
     if (code.length < 4) {
       setMessage("Vui lòng nhập mã đơn hàng.");
@@ -226,7 +322,7 @@ export function ReviewLandingPage({
 
   return (
     <div
-      className="min-h-screen"
+      className={embedded ? "relative min-h-full pt-[54px] pb-8" : "min-h-screen"}
       style={{
         background: style.background,
         color: style.text,
@@ -259,6 +355,7 @@ export function ReviewLandingPage({
           </div>
           <button
             type="button"
+            onClick={() => setStoreOpen(true)}
             className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold shadow-sm"
             style={{ color: style.text, borderRadius: radius }}
           >
@@ -313,6 +410,7 @@ export function ReviewLandingPage({
             <h2 className="text-sm font-black tracking-wide">{copy.formTitle}</h2>
           </div>
           <p className="mt-1 text-xs opacity-70">{copy.formHint}</p>
+          {guideSrc ? (
           <div className="mt-3 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-2.5">
             <button
               type="button"
@@ -342,17 +440,16 @@ export function ReviewLandingPage({
                   : "Nhấn để nghe chủ quán hướng dẫn"}
               </span>
             </button>
-            {guideSrc ? (
-              <audio
-                ref={audioRef}
-                src={guideSrc}
-                preload="metadata"
-                onEnded={() => setPlaying(false)}
-                onPause={() => setPlaying(false)}
-                onPlay={() => setPlaying(true)}
-              />
-            ) : null}
+            <audio
+              ref={audioRef}
+              src={guideSrc}
+              preload="metadata"
+              onEnded={() => setPlaying(false)}
+              onPause={() => setPlaying(false)}
+              onPlay={() => setPlaying(true)}
+            />
           </div>
+          ) : null}
           <input
             value={orderCode}
             onChange={(e) => setOrderCode(e.target.value)}
@@ -380,6 +477,12 @@ export function ReviewLandingPage({
           <p className="mt-1 text-[11px] font-semibold" style={{ color: style.primary }}>
             {copy.orderGuide}
           </p>
+          <OrderAppButtons
+            shopeeUrl={shopeeUrl}
+            grabUrl={grabUrl}
+            radius={radius}
+            className="mt-3"
+          />
         </section>
 
         {gifts.length > 0 ? (
@@ -518,11 +621,8 @@ export function ReviewLandingPage({
               style={{ borderColor: style.primary }}
             >
               <span className="min-w-0">
-                <span className="block font-mono text-sm font-bold tracking-wide">
+                <span className="block font-mono text-xl font-bold tracking-wide">
                   {won.code}
-                </span>
-                <span className="mt-0.5 block truncate text-xs opacity-70">
-                  {won.name}
                 </span>
               </span>
               <span
@@ -542,20 +642,60 @@ export function ReviewLandingPage({
                 Hạn sử dụng: Không hết hạn
               </p>
             )}
-            {buyUrl ? (
-              <a
-                href={
-                  /^https?:\/\//i.test(buyUrl) ? buyUrl : `https://${buyUrl}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 flex w-full items-center justify-center gap-1.5 py-3 text-sm font-bold text-white"
-                style={{ background: style.primary, borderRadius: radius }}
+            <OrderAppButtons
+              shopeeUrl={shopeeUrl}
+              grabUrl={grabUrl}
+              radius={radius}
+              className="mt-4"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {storeOpen ? (
+        <div
+          className={
+            embedded
+              ? "absolute inset-0 z-40 flex items-end justify-center bg-black/40 p-3"
+              : "fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+          }
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-[1.6rem] bg-white shadow-2xl"
+            style={{ color: style.text }}
+          >
+            <div className="flex items-center justify-between px-4 pt-4">
+              <p className="text-sm font-black tracking-wide">
+                {copy.storeInfoLabel}
+              </p>
+              <button
+                type="button"
+                onClick={() => setStoreOpen(false)}
+                className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100"
+                aria-label="Đóng"
               >
-                {copy.buyNowLabel || "Mua ngay"}
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            ) : null}
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-4 pb-5 pt-3">
+              <p className="text-base font-extrabold">{copy.shopName}</p>
+              <p className="mt-0.5 text-xs opacity-70">{copy.tagline}</p>
+              <OrderAppButtons
+                shopeeUrl={shopeeUrl}
+                grabUrl={grabUrl}
+                radius={radius}
+                className="mt-4"
+              />
+              {notes.length > 0 ? (
+                <ul className="mt-4 space-y-1.5">
+                  {notes.map((line) => (
+                    <li key={line} className="text-xs leading-relaxed opacity-80">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}

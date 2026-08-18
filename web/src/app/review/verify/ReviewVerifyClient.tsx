@@ -155,7 +155,7 @@ export default function ReviewVerifyClient() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void verify();
                     }}
-                    placeholder="VD: #13086-788608854"
+                    placeholder="VD: #13086-788608854 hoặc GF-888"
                     className="w-full rounded-xl border border-slate-200 py-3 pr-3 pl-10 text-sm outline-none focus:border-orange-400"
                     inputMode="text"
                     autoComplete="off"

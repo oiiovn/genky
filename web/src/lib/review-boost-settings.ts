@@ -68,6 +68,8 @@ export type ReviewLandingCopy = {
   winMessage: string;
   buyNowLabel: string;
   buyNowUrl: string;
+  shopeeFoodUrl: string;
+  grabFoodUrl: string;
 };
 
 export type ReviewBoostFullSettings = {
@@ -111,7 +113,7 @@ export function defaultReviewLandingCopy(): ReviewLandingCopy {
     formHint: "Nhập mã đơn hàng của bạn để nhận thưởng",
     orderPlaceholder: "Nhập mã đơn hàng tại đây...",
     confirmLabel: "Quay Thưởng",
-    orderHelp: "Mã đơn thường bắt đầu bằng # hoặc SPX.",
+    orderHelp: "Mã đơn ShopeeFood dạng #08086-443874188, GrabFood dạng GF-888.",
     orderGuide: "Hướng dẫn lấy mã đơn hàng >",
     giftsTitle: "PHẦN QUÀ TẶNG",
     notesTitle: "LƯU Ý",
@@ -128,6 +130,8 @@ export function defaultReviewLandingCopy(): ReviewLandingCopy {
     winMessage: "Bạn đã quay trúng phần quà từ quán. Ghi chú mã tặng cho đơn tới nhé!",
     buyNowLabel: "Mua ngay",
     buyNowUrl: "",
+    shopeeFoodUrl: "",
+    grabFoodUrl: "",
   };
 }
 
@@ -182,11 +186,14 @@ function key(orgId: number | string): string {
   return `${STORAGE_PREFIX}:${orgId}`;
 }
 
-function mergeLandingCopy(
+export function mergeLandingCopy(
   base: ReviewLandingCopy,
   patch?: Partial<ReviewLandingCopy>,
 ): ReviewLandingCopy {
   const landing = { ...base, ...(patch ?? {}) };
+  if (!landing.shopeeFoodUrl && landing.buyNowUrl) {
+    landing.shopeeFoodUrl = landing.buyNowUrl;
+  }
   if (!patch?.confirmLabel || patch.confirmLabel === "Xác nhận") {
     landing.confirmLabel = base.confirmLabel;
   }
@@ -197,6 +204,12 @@ function mergeLandingCopy(
     patch.winMessage === "Bạn đã quay trúng phần quà từ quán."
   ) {
     landing.winMessage = base.winMessage;
+  }
+  if (
+    !patch?.orderHelp ||
+    patch.orderHelp === "Mã đơn thường bắt đầu bằng # hoặc SPX."
+  ) {
+    landing.orderHelp = base.orderHelp;
   }
   return landing;
 }

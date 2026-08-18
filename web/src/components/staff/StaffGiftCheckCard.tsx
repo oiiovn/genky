@@ -154,9 +154,6 @@ export function StaffGiftCheckCard({
           <h2 className="text-sm font-semibold text-white">
             Kiểm tra & xác nhận tặng
           </h2>
-          <p className="mt-0.5 text-xs text-slate-400">
-            Nhập mã tặng hoặc mã đơn — kết quả hiện ngay.
-          </p>
         </div>
       </div>
 

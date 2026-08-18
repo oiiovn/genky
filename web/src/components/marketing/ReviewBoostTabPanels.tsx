@@ -33,18 +33,14 @@ export function ReviewBoostHistoryPanel({
   branchId,
   from,
   to,
-  dateLabel,
   refreshTick,
-  onExport,
   onToast,
 }: {
   branches: Branch[];
   branchId?: number | "";
   from?: string;
   to?: string;
-  dateLabel: string;
   refreshTick?: number;
-  onExport?: () => void;
   onToast?: (message: string) => void;
 }) {
   return (
@@ -53,9 +49,7 @@ export function ReviewBoostHistoryPanel({
       branchId={branchId}
       from={from}
       to={to}
-      dateLabel={dateLabel}
       refreshTick={refreshTick}
-      onExport={onExport}
       onToast={onToast}
     />
   );

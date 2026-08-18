@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   Check,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Columns3,
   Copy,
   Eye,
   Filter,
@@ -77,6 +78,42 @@ function channelUi(row: ReviewListRow) {
       bg: "bg-slate-50",
     }
   );
+}
+
+const REVIEW_COLUMNS = [
+  { id: "orderCode", label: "Mã đơn" },
+  { id: "customer", label: "Khách hàng" },
+  { id: "channel", label: "Kênh" },
+  { id: "branch", label: "Chi nhánh" },
+  { id: "reviewedAt", label: "Ngày đánh giá" },
+  { id: "rating", label: "Số sao" },
+  { id: "status", label: "Trạng thái" },
+  { id: "giftCode", label: "Mã tặng món" },
+] as const;
+
+type ReviewColId = (typeof REVIEW_COLUMNS)[number]["id"];
+
+const ALL_REVIEW_COLS: ReviewColId[] = REVIEW_COLUMNS.map((c) => c.id);
+const COLS_STORAGE_KEY = "genky_review_list_cols_v1";
+
+function loadReviewCols(): Set<ReviewColId> {
+  if (typeof window === "undefined") return new Set(ALL_REVIEW_COLS);
+  try {
+    const raw = window.localStorage.getItem(COLS_STORAGE_KEY);
+    if (!raw) return new Set(ALL_REVIEW_COLS);
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set(ALL_REVIEW_COLS);
+    const next = parsed.filter((id): id is ReviewColId =>
+      ALL_REVIEW_COLS.includes(id as ReviewColId),
+    );
+    return new Set(next.length ? next : ALL_REVIEW_COLS);
+  } catch {
+    return new Set(ALL_REVIEW_COLS);
+  }
+}
+
+function saveReviewCols(cols: Set<ReviewColId>) {
+  window.localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify([...cols]));
 }
 
 const giftStatusUi: Record<
@@ -247,6 +284,42 @@ export function ReviewBoostReviewsTab({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modalRow, setModalRow] = useState<ReviewListRow | null>(null);
   const [acting, setActing] = useState(false);
+  const [visibleCols, setVisibleCols] = useState<Set<ReviewColId>>(
+    () => new Set(ALL_REVIEW_COLS),
+  );
+  const [colsOpen, setColsOpen] = useState(false);
+  const colsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setVisibleCols(loadReviewCols());
+  }, []);
+
+  useEffect(() => {
+    if (!colsOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (!colsRef.current?.contains(e.target as Node)) setColsOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [colsOpen]);
+
+  function showCol(id: ReviewColId) {
+    return visibleCols.has(id);
+  }
+
+  function toggleCol(id: ReviewColId) {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size <= 1) return prev;
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      saveReviewCols(next);
+      return next;
+    });
+  }
 
   useEffect(() => {
     const ac = new AbortController();
@@ -424,12 +497,7 @@ export function ReviewBoostReviewsTab({
         <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
           {loadError}
         </p>
-      ) : (
-        <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          Đang hiển thị {stats.total} đánh giá từ API
-          {branchId ? " (theo chi nhánh)" : ""}.
-        </p>
-      )}
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="relative min-w-[220px] flex-1">
@@ -569,10 +637,57 @@ export function ReviewBoostReviewsTab({
                 </span>
               </button>
             ))}
+            <div ref={colsRef} className="relative ml-auto pb-1.5">
+              <button
+                type="button"
+                onClick={() => setColsOpen((v) => !v)}
+                className={clsx(
+                  "rounded-lg p-1.5 hover:bg-slate-100",
+                  colsOpen ? "bg-blue-50 text-blue-600" : "text-slate-400",
+                )}
+                aria-label="Chọn cột hiển thị"
+                title="Cột hiển thị"
+              >
+                <Columns3 className="h-4 w-4" />
+              </button>
+              {colsOpen ? (
+                <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="mb-2 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+                    Cột hiển thị
+                  </p>
+                  <ul className="space-y-1">
+                    {REVIEW_COLUMNS.map((col) => (
+                      <li key={col.id}>
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-sm text-slate-700 hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={showCol(col.id)}
+                            onChange={() => toggleCol(col.id)}
+                            className="rounded border-slate-300"
+                          />
+                          {col.label}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const all = new Set(ALL_REVIEW_COLS);
+                      setVisibleCols(all);
+                      saveReviewCols(all);
+                    }}
+                    className="mt-2 w-full rounded-lg px-2 py-1.5 text-left text-xs font-medium text-blue-600 hover:bg-blue-50"
+                  >
+                    Hiện tất cả
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-slate-50 text-left text-[11px] tracking-wide text-slate-400 uppercase">
                 <tr>
                   <th className="px-3 py-3">
@@ -587,14 +702,30 @@ export function ReviewBoostReviewsTab({
                       aria-label="Chọn tất cả"
                     />
                   </th>
-                  <th className="px-3 py-3 font-semibold">Mã đơn</th>
-                  <th className="px-3 py-3 font-semibold">Khách hàng</th>
-                  <th className="px-3 py-3 font-semibold">Kênh</th>
-                  <th className="px-3 py-3 font-semibold">Chi nhánh</th>
-                  <th className="px-3 py-3 font-semibold">Ngày đánh giá</th>
-                  <th className="px-3 py-3 font-semibold">Số sao</th>
-                  <th className="px-3 py-3 font-semibold">Trạng thái</th>
-                  <th className="px-3 py-3 font-semibold">Mã tặng món</th>
+                  {showCol("orderCode") ? (
+                    <th className="px-3 py-3 font-semibold">Mã đơn</th>
+                  ) : null}
+                  {showCol("customer") ? (
+                    <th className="px-3 py-3 font-semibold">Khách hàng</th>
+                  ) : null}
+                  {showCol("channel") ? (
+                    <th className="px-3 py-3 font-semibold">Kênh</th>
+                  ) : null}
+                  {showCol("branch") ? (
+                    <th className="px-3 py-3 font-semibold">Chi nhánh</th>
+                  ) : null}
+                  {showCol("reviewedAt") ? (
+                    <th className="px-3 py-3 font-semibold">Ngày đánh giá</th>
+                  ) : null}
+                  {showCol("rating") ? (
+                    <th className="px-3 py-3 font-semibold">Số sao</th>
+                  ) : null}
+                  {showCol("status") ? (
+                    <th className="px-3 py-3 font-semibold">Trạng thái</th>
+                  ) : null}
+                  {showCol("giftCode") ? (
+                    <th className="px-3 py-3 font-semibold">Mã tặng món</th>
+                  ) : null}
                   <th className="px-3 py-3 font-semibold">Thao tác</th>
                 </tr>
               </thead>
@@ -602,7 +733,7 @@ export function ReviewBoostReviewsTab({
                 {pageRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={2 + visibleCols.size}
                       className="px-4 py-14 text-center text-slate-400"
                     >
                       {stats.total === 0
@@ -629,50 +760,66 @@ export function ReviewBoostReviewsTab({
                             aria-label={`Chọn ${row.orderCode}`}
                           />
                         </td>
-                        <td className="px-3 py-3 font-medium text-slate-800">
-                          {row.orderCode}
-                        </td>
-                        <td className="px-3 py-3">
-                          <p className="font-medium text-slate-800">
-                            {row.customerName}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {row.customerPhone}
-                          </p>
-                        </td>
-                        <td className="px-3 py-3">
-                          <span
-                            className={clsx(
-                              "inline-flex rounded-lg px-2 py-1 text-xs font-semibold",
-                              ch.bg,
-                              ch.color,
-                            )}
-                          >
-                            {ch.label}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-slate-600">
-                          {row.branch}
-                        </td>
-                        <td className="px-3 py-3 whitespace-nowrap text-slate-500">
-                          {row.reviewedAt}
-                        </td>
-                        <td className="px-3 py-3">
-                          <Stars rating={row.rating} />
-                        </td>
-                        <td className="px-3 py-3">
-                          <span
-                            className={clsx(
-                              "rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset",
-                              st.className,
-                            )}
-                          >
-                            {st.label}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <GiftCodeCell code={row.giftCode} />
-                        </td>
+                        {showCol("orderCode") ? (
+                          <td className="px-3 py-3 font-medium text-slate-800">
+                            {row.orderCode}
+                          </td>
+                        ) : null}
+                        {showCol("customer") ? (
+                          <td className="px-3 py-3">
+                            <p className="font-medium text-slate-800">
+                              {row.customerName}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              {row.customerPhone}
+                            </p>
+                          </td>
+                        ) : null}
+                        {showCol("channel") ? (
+                          <td className="px-3 py-3">
+                            <span
+                              className={clsx(
+                                "inline-flex rounded-lg px-2 py-1 text-xs font-semibold",
+                                ch.bg,
+                                ch.color,
+                              )}
+                            >
+                              {ch.label}
+                            </span>
+                          </td>
+                        ) : null}
+                        {showCol("branch") ? (
+                          <td className="px-3 py-3 text-slate-600">
+                            {row.branch}
+                          </td>
+                        ) : null}
+                        {showCol("reviewedAt") ? (
+                          <td className="px-3 py-3 whitespace-nowrap text-slate-500">
+                            {row.reviewedAt}
+                          </td>
+                        ) : null}
+                        {showCol("rating") ? (
+                          <td className="px-3 py-3">
+                            <Stars rating={row.rating} />
+                          </td>
+                        ) : null}
+                        {showCol("status") ? (
+                          <td className="px-3 py-3">
+                            <span
+                              className={clsx(
+                                "rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset",
+                                st.className,
+                              )}
+                            >
+                              {st.label}
+                            </span>
+                          </td>
+                        ) : null}
+                        {showCol("giftCode") ? (
+                          <td className="px-3 py-3">
+                            <GiftCodeCell code={row.giftCode} />
+                          </td>
+                        ) : null}
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1">
                             <button

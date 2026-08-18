@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Download,
   Filter,
   Gift,
   MoreVertical,
@@ -21,6 +20,7 @@ import {
   AlertTriangle,
   XCircle,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { Branch } from "@/lib/api";
 import { formatReviewCount } from "@/lib/review-boost-demo";
 import {
@@ -159,25 +159,20 @@ export function ReviewBoostHistoryTab({
   branchId = "",
   from,
   to,
-  dateLabel,
   refreshTick = 0,
-  onExport,
   onToast,
 }: {
   branches: Branch[];
   branchId?: number | "";
   from?: string;
   to?: string;
-  dateLabel: string;
   refreshTick?: number;
-  onExport?: () => void;
   onToast?: (message: string) => void;
 }) {
   const [stats, setStats] = useState<ReviewRedeemStats>(emptyStats);
   const [redeemRows, setRedeemRows] = useState<ReviewRedeemRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [rangeLabel, setRangeLabel] = useState(dateLabel);
 
   const [search, setSearch] = useState("");
   const [branch, setBranch] = useState("");
@@ -190,6 +185,10 @@ export function ReviewBoostHistoryTab({
   const [localTick, setLocalTick] = useState(0);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<ReviewRedeemRow | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ReviewRedeemRow | null>(
+    null,
+  );
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -203,7 +202,6 @@ export function ReviewBoostHistoryTab({
         if (ac.signal.aborted) return;
         setStats(data.redeemStats ?? emptyStats);
         setRedeemRows(data.redeemRows ?? []);
-        setRangeLabel(dateLabel);
       })
       .catch((e: unknown) => {
         if (ac.signal.aborted) return;
@@ -217,7 +215,7 @@ export function ReviewBoostHistoryTab({
         if (!ac.signal.aborted) setLoading(false);
       });
     return () => ac.abort();
-  }, [branchId, from, to, refreshTick, localTick, dateLabel]);
+  }, [branchId, from, to, refreshTick, localTick]);
 
   const staffOptions = useMemo(
     () =>
@@ -275,20 +273,16 @@ export function ReviewBoostHistoryTab({
   }
 
   async function handleDelete(row: ReviewRedeemRow) {
-    setMenuId(null);
-    if (
-      !window.confirm(
-        `Xoá lượt đổi mã ${row.giftCode}? Mã tặng sẽ được mở lại để đổi.`,
-      )
-    ) {
-      return;
-    }
+    setDeleteBusy(true);
     try {
       await deleteMarketingRedemption(row.id);
+      setPendingDelete(null);
       onToast?.("Đã xoá lượt đổi quà.");
       setLocalTick((n) => n + 1);
     } catch (e: unknown) {
       onToast?.(e instanceof Error ? e.message : "Không xoá được lượt đổi quà.");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -360,28 +354,9 @@ export function ReviewBoostHistoryTab({
         <p className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
           Đang tải lịch sử đổi quà…
         </p>
-      ) : (
-        <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          Đang hiển thị {stats.total} lượt đổi quà từ API
-          {branchId ? " (theo chi nhánh)" : ""}.
-        </p>
-      )}
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            {rangeLabel}
-          </div>
-          <button
-            type="button"
-            onClick={onExport}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Download className="h-4 w-4" />
-            Xuất Excel
-          </button>
-        </div>
-
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -554,7 +529,10 @@ export function ReviewBoostHistoryTab({
                       setMenuId(null);
                       setEditRow(row);
                     }}
-                    onDelete={() => void handleDelete(row)}
+                    onDelete={() => {
+                      setMenuId(null);
+                      setPendingDelete(row);
+                    }}
                   />
                 ))
               )}
@@ -610,6 +588,18 @@ export function ReviewBoostHistoryTab({
           branches={branches}
           onClose={() => setEditRow(null)}
           onSave={(payload) => handleSaveEdit(payload)}
+        />
+      ) : null}
+      {pendingDelete ? (
+        <ConfirmDialog
+          open
+          title="Xoá lượt đổi quà"
+          message={`Xoá lượt đổi mã ${pendingDelete.giftCode}? Mã tặng sẽ được mở lại để đổi.`}
+          loading={deleteBusy}
+          onClose={() => {
+            if (!deleteBusy) setPendingDelete(null);
+          }}
+          onConfirm={() => void handleDelete(pendingDelete)}
         />
       ) : null}
     </div>
@@ -727,7 +717,7 @@ function StaffRedeemPanel({
           onKeyDown={(e) => {
             if (e.key === "Enter") void handleCheck();
           }}
-          placeholder="Mã tặng hoặc mã đơn, ví dụ GENKY-XXXX hoặc #08086-443874188"
+          placeholder="Mã tặng hoặc mã đơn, ví dụ GENKY-XXXX, #08086-443874188 hoặc GF-888"
           className="min-w-[240px] flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm outline-none focus:border-blue-400 focus:bg-white"
         />
         <button

@@ -1,28 +1,35 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ReviewLandingPage } from "@/components/marketing/ReviewLandingPage";
 import {
   defaultReviewBoostSettings,
   loadReviewBoostSettings,
   readReviewLandingPreviewDraft,
+  type ReviewBoostFullSettings,
 } from "@/lib/review-boost-settings";
 
 function ReviewLandingClient() {
   const search = useSearchParams();
   const preview = search.get("preview") === "1";
   const org = search.get("org") || "org";
+  const [settings, setSettings] = useState<ReviewBoostFullSettings>(
+    defaultReviewBoostSettings,
+  );
 
-  const settings = useMemo(() => {
-    if (preview && typeof window !== "undefined") {
+  useEffect(() => {
+    if (preview) {
       const draft = readReviewLandingPreviewDraft(org);
-      if (draft) return draft;
+      if (draft) {
+        setSettings(draft);
+        return;
+      }
     }
     try {
-      return loadReviewBoostSettings(org);
+      setSettings(loadReviewBoostSettings(org));
     } catch {
-      return defaultReviewBoostSettings();
+      setSettings(defaultReviewBoostSettings());
     }
   }, [org, preview]);
 

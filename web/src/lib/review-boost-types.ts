@@ -33,6 +33,12 @@ export type ReviewDailyPoint = {
   date: string;
   label: string;
   count: number;
+  byChannel?: Record<string, number>;
+};
+
+export type ReviewDailyChannel = {
+  id: string;
+  label: string;
 };
 
 export type ReviewChannelSlice = {
@@ -148,6 +154,7 @@ export type ReviewBoostOverviewData = {
   kpis: ReviewBoostKpi[];
   funnel: ReviewFunnelStep[];
   daily: ReviewDailyPoint[];
+  dailyChannels?: ReviewDailyChannel[];
   channels: ReviewChannelSlice[];
   redeemRatePct: number;
   redeemNumer: number;

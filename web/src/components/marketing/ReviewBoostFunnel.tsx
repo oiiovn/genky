@@ -9,9 +9,6 @@ export function ReviewBoostFunnel({ steps }: { steps: ReviewFunnelStep[] }) {
   return (
     <section className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h3 className="text-base font-semibold text-slate-800">Phễu hiệu quả</h3>
-      <p className="mt-0.5 text-xs text-slate-400">
-        5★ → xác minh → cấp mã → đổi quà
-      </p>
       <ul className="mt-5 space-y-4">
         {steps.map((step, index) => {
           const width = Math.max(28, Math.round((step.value / max) * 100));

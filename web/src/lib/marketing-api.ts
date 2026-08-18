@@ -25,6 +25,47 @@ async function parseError(res: Response): Promise<string> {
   return "Yêu cầu marketing thất bại.";
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function normalizeDailyPoint(raw: unknown) {
+  const row = asRecord(raw);
+  const byRaw = asRecord(row.byChannel ?? row.by_channel);
+  const byChannel: Record<string, number> = {};
+  for (const [key, value] of Object.entries(byRaw)) {
+    byChannel[key] = Number(value ?? 0);
+  }
+  return {
+    date: String(row.date ?? ""),
+    label: String(row.label ?? ""),
+    count: Number(row.count ?? 0),
+    byChannel,
+  };
+}
+
+function normalizeDailyChannel(raw: unknown) {
+  const row = asRecord(raw);
+  return {
+    id: String(row.id ?? ""),
+    label: String(row.label ?? row.name ?? row.id ?? ""),
+  };
+}
+
+function normalizeOverview(raw: ReviewBoostOverviewData): ReviewBoostOverviewData {
+  const data = asRecord(raw) as unknown as ReviewBoostOverviewData;
+  const dailyRaw = (data.daily ?? []) as unknown[];
+  const channelsRaw = ((data as unknown as Record<string, unknown>).dailyChannels
+    ?? (data as unknown as Record<string, unknown>).daily_channels
+    ?? []) as unknown[];
+
+  return {
+    ...data,
+    daily: dailyRaw.map(normalizeDailyPoint),
+    dailyChannels: channelsRaw.map(normalizeDailyChannel).filter((c) => c.id),
+  };
+}
+
 export type MarketingOverviewFilters = {
   branch_id?: number | "";
   from?: string;
@@ -51,7 +92,7 @@ export async function fetchMarketingReviewOverview(
   );
   if (!res.ok) throw new Error(await parseError(res));
   const json = (await res.json()) as { data: ReviewBoostOverviewData };
-  return json.data;
+  return normalizeOverview(json.data);
 }
 
 export type MarketingReviewFormMeta = {
@@ -809,8 +850,94 @@ export async function clearMarketingLandingAudio(): Promise<MarketingLandingAudi
   return normalizeLandingAudio(json.data);
 }
 
+export type MarketingLandingStyleDto = {
+  style: Partial<{
+    primary: string;
+    secondary: string;
+    background: string;
+    text: string;
+  }>;
+  landing: Record<string, string | number>;
+};
+
+function normalizeLandingStyle(
+  raw: Record<string, unknown> | null | undefined,
+): MarketingLandingStyleDto {
+  const styleRaw =
+    raw?.style && typeof raw.style === "object"
+      ? (raw.style as Record<string, unknown>)
+      : {};
+  const landingRaw =
+    raw?.landing && typeof raw.landing === "object"
+      ? (raw.landing as Record<string, unknown>)
+      : {};
+  const landing: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(landingRaw)) {
+    if (typeof value === "string" || typeof value === "number") {
+      landing[key] = value;
+    }
+  }
+  return {
+    style: {
+      ...(typeof styleRaw.primary === "string" ? { primary: styleRaw.primary } : {}),
+      ...(typeof styleRaw.secondary === "string"
+        ? { secondary: styleRaw.secondary }
+        : {}),
+      ...(typeof styleRaw.background === "string"
+        ? { background: styleRaw.background }
+        : {}),
+      ...(typeof styleRaw.text === "string" ? { text: styleRaw.text } : {}),
+    },
+    landing,
+  };
+}
+
+export async function fetchMarketingLanding(
+  signal?: AbortSignal,
+): Promise<MarketingLandingStyleDto> {
+  const res = await authFetch(`${apiUrl()}/marketing/landing`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingStyle(json.data);
+}
+
+export async function updateMarketingLanding(payload: {
+  style: Record<string, string>;
+  landing: Record<string, unknown>;
+}): Promise<MarketingLandingStyleDto> {
+  const res = await authFetch(`${apiUrl()}/marketing/landing`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingStyle(json.data);
+}
+
+export async function fetchPublicLanding(
+  orgId: number | string,
+  signal?: AbortSignal,
+): Promise<MarketingLandingStyleDto> {
+  const id = Number(orgId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return { style: {}, landing: {} };
+  }
+  const res = await fetch(
+    `${apiUrl()}/public/review-reward/landing?org_id=${id}`,
+    { cache: "no-store", signal },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: Record<string, unknown> };
+  return normalizeLandingStyle(json.data);
+}
+
 export type MarketingRewardCodeSettingsDto = {
   prefix: string;
+  pattern: string;
   length: number;
   use_letters: boolean;
   use_numbers: boolean;
@@ -829,6 +956,7 @@ function normalizeCodeSettings(
 ): MarketingRewardCodeSettingsDto {
   return {
     prefix: String(raw.prefix ?? "GEN"),
+    pattern: String(raw.pattern ?? "GEN-XXXX"),
     length: Number(raw.length ?? 4),
     use_letters: Boolean(raw.use_letters),
     use_numbers: Boolean(raw.use_numbers),

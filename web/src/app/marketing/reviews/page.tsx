@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { Plus } from "lucide-react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
@@ -45,7 +46,14 @@ const ReviewBoostOverview = dynamic(
 
 type TabId = "overview" | "reviews" | "history" | "settings";
 
-function isoRange(days = 90): { from: string; to: string; label: string } {
+const TABS: TabId[] = ["overview", "reviews", "history", "settings"];
+
+function parseTab(raw: string | null): TabId {
+  if (raw && (TABS as string[]).includes(raw)) return raw as TabId;
+  return "overview";
+}
+
+function isoRange(days = 7): { from: string; to: string; label: string } {
   const to = new Date();
   const from = new Date();
   from.setDate(to.getDate() - days);
@@ -82,16 +90,42 @@ function withRange(
   };
 }
 
-export default function MarketingReviewsPage() {
+export default function MarketingReviewsRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex-1 p-5 lg:p-6">
+          <div className="h-10 w-64 animate-pulse rounded-xl bg-slate-100" />
+        </div>
+      }
+    >
+      <MarketingReviewsPage />
+    </Suspense>
+  );
+}
+
+function MarketingReviewsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { branches, profile } = useAdminChrome(
     "Tăng đánh giá 5★ và biến khách hàng thành khách quay lại.",
   );
   const orgId =
     profile.organization?.id ?? profile.user.current_organization_id ?? "org";
 
-  const [tab, setTab] = useState<TabId>("overview");
+  const tab = parseTab(searchParams.get("tab"));
+
+  function setTab(next: TabId) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "overview") params.delete("tab");
+    else params.set("tab", next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
+
   const [branchId, setBranchId] = useState<number | "">("");
-  const [range, setRange] = useState(() => isoRange(90));
+  const [range, setRange] = useState(() => isoRange(7));
   const [savedUrl, setSavedUrl] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -240,26 +274,11 @@ export default function MarketingReviewsPage() {
           </button>
         </div>
 
-        {tab === "overview" ? (
-          overviewError ? (
-            <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-              {overviewError}
-            </p>
-          ) : liveOverview ? (
-            <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-              Tổng quan đang lấy dữ liệu thật từ API
-              {branchId ? " (theo chi nhánh)" : ""}.
-            </p>
-          ) : overviewLoading ? (
-            <p className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-              Đang tải tổng quan…
-            </p>
-          ) : null
-        ) : tab === "reviews" || tab === "history" ? null : (
-          <p className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Tab này vẫn dùng dữ liệu minh họa — sẽ gắn API ở bước tiếp theo.
+        {tab === "overview" && overviewError ? (
+          <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            {overviewError}
           </p>
-        )}
+        ) : null}
 
         {tab === "overview" ? (
           overviewLoading && !liveOverview ? (
@@ -299,12 +318,7 @@ export default function MarketingReviewsPage() {
             branchId={branchId}
             from={range.from}
             to={range.to}
-            dateLabel={range.label}
             refreshTick={overviewTick}
-            onExport={() => {
-              setToast("Xuất Excel sẽ gắn API sau.");
-              window.setTimeout(() => setToast(null), 2200);
-            }}
             onToast={(message) => {
               setToast(message);
               window.setTimeout(() => setToast(null), 2400);

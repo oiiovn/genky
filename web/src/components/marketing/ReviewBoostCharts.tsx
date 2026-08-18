@@ -16,12 +16,29 @@ import {
 import { ChevronDown } from "lucide-react";
 import type {
   ReviewChannelSlice,
+  ReviewDailyChannel,
   ReviewDailyPoint,
 } from "@/lib/review-boost-types";
 import { formatReviewCount } from "@/lib/review-boost-demo";
 
-export function ReviewDailyChart({ data }: { data: ReviewDailyPoint[] }) {
+export function ReviewDailyChart({
+  data,
+  channels = [],
+}: {
+  data: ReviewDailyPoint[];
+  channels?: ReviewDailyChannel[];
+}) {
   const [channel, setChannel] = useState("all");
+
+  const series = useMemo(() => {
+    if (channel === "all") return data;
+    return data.map((point) => ({
+      ...point,
+      count: Number(point.byChannel?.[channel] ?? 0),
+    }));
+  }, [channel, data]);
+
+  const xInterval = series.length > 14 ? Math.ceil(series.length / 8) - 1 : 0;
 
   return (
     <section className="h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -40,24 +57,28 @@ export function ReviewDailyChart({ data }: { data: ReviewDailyPoint[] }) {
             className="appearance-none rounded-lg border border-slate-200 bg-white py-1.5 pr-7 pl-2.5 text-xs text-slate-600 outline-none"
           >
             <option value="all">Tất cả kênh</option>
-            <option value="shopee">Shopee</option>
-            <option value="shopee_food">ShopeeFood</option>
-            <option value="grab_food">GrabFood</option>
+            {channels.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
           </select>
           <ChevronDown className="pointer-events-none absolute top-1/2 right-2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
         </label>
       </div>
       <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <LineChart data={series} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
             <XAxis
               dataKey="label"
               tickLine={false}
               axisLine={false}
+              interval={xInterval}
               tick={{ fill: "#94A3B8", fontSize: 11 }}
             />
             <YAxis
+              allowDecimals={false}
               tickLine={false}
               axisLine={false}
               tick={{ fill: "#94A3B8", fontSize: 11 }}
@@ -84,7 +105,11 @@ export function ReviewDailyChart({ data }: { data: ReviewDailyPoint[] }) {
               dataKey="count"
               stroke="#3B82F6"
               strokeWidth={2.5}
-              dot={{ r: 3, fill: "#3B82F6", strokeWidth: 0 }}
+              dot={
+                series.length <= 45
+                  ? { r: 3, fill: "#3B82F6", strokeWidth: 0 }
+                  : false
+              }
               activeDot={{ r: 5 }}
             />
           </LineChart>

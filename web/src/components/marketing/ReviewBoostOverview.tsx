@@ -186,7 +186,10 @@ export function ReviewBoostOverview({
           <ReviewBoostFunnel steps={data.funnel} />
         </div>
         <div className="xl:col-span-6">
-          <ReviewDailyChart data={data.daily} />
+          <ReviewDailyChart
+            data={data.daily}
+            channels={data.dailyChannels?.length ? data.dailyChannels : data.channels}
+          />
         </div>
         <div className="space-y-5 xl:col-span-3">
           <ReviewChannelDonut channels={data.channels} />
@@ -236,7 +239,7 @@ export function ReviewBoostOverview({
             Đánh giá mới nhất
           </h3>
           <ul className="mt-1">
-            {data.latest.map((item) => (
+            {data.latest.slice(0, 5).map((item) => (
               <LatestRow key={item.id} item={item} />
             ))}
           </ul>
