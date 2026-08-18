@@ -25,6 +25,7 @@ import {
 import { ReviewLandingPage } from "@/components/marketing/ReviewLandingPage";
 import { Iphone16ProFrame } from "@/components/marketing/Iphone16ProFrame";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import type { Branch } from "@/lib/api";
 import {
   clearMarketingRewardImage,
   createMarketingChannel,
