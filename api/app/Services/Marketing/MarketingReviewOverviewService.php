@@ -85,6 +85,8 @@ class MarketingReviewOverviewService
             ? ($prevRedeemed / $prevCodes) * 100
             : 0.0;
 
+        [$dailyChannels, $channelCodeById] = $this->chartChannels();
+
         $campaign = MarketingReviewCampaign::query()
             ->withCount([
                 'campaignBranches',
@@ -170,14 +172,15 @@ class MarketingReviewOverviewService
                         : 0,
                 ],
             ],
-            'daily' => $this->dailySeries($branchId, $from, $to),
+            'daily' => $this->dailySeries($branchId, $from, $to, $channelCodeById),
+            'dailyChannels' => $dailyChannels,
             'channels' => $this->channelSlices($branchId, $from, $to),
             'redeemRatePct' => $redeemRatePct,
             'redeemNumer' => $redeemed,
             'redeemDenom' => $codesIssued,
             'redeemDeltaPct' => round($redeemRatePct - $prevRedeemRate, 1),
             'topBranches' => $this->topBranches($from, $to),
-            'latest' => $this->latestReviews($branchId, 8),
+            'latest' => $this->latestReviews($branchId, 5),
             'campaign' => $campaign ? $this->campaignPayload($campaign, $redeemed) : null,
             'publicReviewPath' => $publicPath,
             'pendingCount' => $pending,
@@ -248,26 +251,65 @@ class MarketingReviewOverviewService
     }
 
     /**
-     * @return list<array{date: string, label: string, count: int}>
+     * @return array{0: list<array{id: string, label: string}>, 1: array<int, string>}
      */
-    protected function dailySeries(?int $branchId, Carbon $from, Carbon $to): array
+    protected function chartChannels(): array
+    {
+        $options = [];
+        $codeById = [];
+        $seen = [];
+
+        foreach (MarketingChannel::query()->ordered()->get() as $channel) {
+            $id = $this->normalizeChannelCode($channel->code);
+            $codeById[(int) $channel->id] = $id;
+            if (isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $options[] = [
+                'id' => $id,
+                'label' => $channel->name,
+            ];
+        }
+
+        return [$options, $codeById];
+    }
+
+    /**
+     * @param  array<int, string>  $channelCodeById
+     * @return list<array{date: string, label: string, count: int, byChannel: array<string, int>}>
+     */
+    protected function dailySeries(?int $branchId, Carbon $from, Carbon $to, array $channelCodeById = []): array
     {
         $rows = MarketingReview::query()
-            ->selectRaw('DATE(reviewed_at) as d, COUNT(*) as c')
+            ->selectRaw('DATE(reviewed_at) as d, channel_id, COUNT(*) as c')
             ->whereBetween('reviewed_at', [$from, $to])
             ->when($branchId, fn (Builder $q) => $q->where('branch_id', $branchId))
-            ->groupBy('d')
-            ->orderBy('d')
-            ->pluck('c', 'd');
+            ->groupByRaw('DATE(reviewed_at), channel_id')
+            ->get();
+
+        $byDay = [];
+        foreach ($rows as $row) {
+            try {
+                $key = Carbon::parse((string) $row->d)->toDateString();
+            } catch (\Throwable) {
+                $key = substr((string) $row->d, 0, 10);
+            }
+            $code = $channelCodeById[(int) $row->channel_id]
+                ?? $this->normalizeChannelCode(null);
+            $byDay[$key][$code] = ((int) ($byDay[$key][$code] ?? 0)) + (int) $row->c;
+        }
 
         $out = [];
         $cursor = $from->copy()->startOfDay();
         while ($cursor->lte($to)) {
             $key = $cursor->toDateString();
+            $byChannel = $byDay[$key] ?? [];
             $out[] = [
                 'date' => $key,
                 'label' => $cursor->format('d/m'),
-                'count' => (int) ($rows[$key] ?? 0),
+                'count' => (int) array_sum($byChannel),
+                'byChannel' => $byChannel,
             ];
             $cursor->addDay();
         }

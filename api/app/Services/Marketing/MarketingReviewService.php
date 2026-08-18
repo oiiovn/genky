@@ -6,6 +6,7 @@ use App\Models\MarketingCampaignBranch;
 use App\Models\MarketingCampaignChannel;
 use App\Models\MarketingReview;
 use App\Models\MarketingReviewCampaign;
+use App\Support\Marketing\OrderCode;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -444,6 +445,15 @@ class MarketingReviewService
     private function extractOrderCodes(string $text): array
     {
         $hits = [];
+        if (preg_match_all('/GF-?\d{3,}/iu', $text, $m, PREG_OFFSET_CAPTURE)) {
+            foreach ($m[0] as [$raw, $offset]) {
+                $hits[] = [
+                    'code' => $this->normalizeOrderCode($raw),
+                    'offset' => (int) $offset,
+                    'length' => strlen($raw),
+                ];
+            }
+        }
         if (preg_match_all('/#?\d{4,}[-–]\d{6,}/u', $text, $m, PREG_OFFSET_CAPTURE)) {
             foreach ($m[0] as [$raw, $offset]) {
                 $hits[] = [
@@ -523,12 +533,7 @@ class MarketingReviewService
 
     private function normalizeOrderCode(string $code): string
     {
-        $code = trim($code);
-        if ($code !== '' && ! str_starts_with($code, '#') && preg_match('/^\d{4,}[-–]\d{6,}$/u', $code)) {
-            return '#'.$code;
-        }
-
-        return $code;
+        return OrderCode::normalize($code);
     }
 
     private function normalizeReviewedAt(string $value): ?string

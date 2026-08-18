@@ -15,6 +15,7 @@ class UpdateMarketingRewardCodeSettingRequest extends FormRequest
     {
         return [
             'prefix' => ['nullable', 'string', 'max:32'],
+            'pattern' => ['nullable', 'string', 'max:64'],
             'length' => ['nullable', 'integer', 'min:1', 'max:16'],
             'use_letters' => ['nullable', 'boolean'],
             'use_numbers' => ['nullable', 'boolean'],

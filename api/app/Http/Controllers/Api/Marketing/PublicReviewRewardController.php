@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Marketing\PublicSpinRewardRequest;
 use App\Http\Requests\Marketing\PublicVerifyOrderRequest;
 use App\Services\Marketing\MarketingLandingAudioService;
+use App\Services\Marketing\MarketingLandingStyleService;
 use App\Services\Marketing\PublicReviewRewardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +16,7 @@ class PublicReviewRewardController extends Controller
     public function __construct(
         private readonly PublicReviewRewardService $rewards,
         private readonly MarketingLandingAudioService $audio,
+        private readonly MarketingLandingStyleService $style,
     ) {
     }
 
@@ -44,6 +46,17 @@ class PublicReviewRewardController extends Controller
         $payload = $this->rewards->claim(trim($token));
 
         return response()->json($payload);
+    }
+
+    public function landing(Request $request): JsonResponse
+    {
+        $orgId = (int) $request->query('org_id', 0);
+
+        return response()->json([
+            'data' => $orgId > 0
+                ? $this->style->showForOrganization($orgId)
+                : ['style' => [], 'landing' => []],
+        ]);
     }
 
     public function guideAudio(Request $request): JsonResponse

@@ -99,9 +99,9 @@ class PublicReviewRewardService
         }
 
         $normalized = OrderCode::normalize($orderCode);
-        if (! OrderCode::isShopeeFormat($normalized)) {
+        if (! OrderCode::isValid($normalized)) {
             throw ValidationException::withMessages([
-                'order_code' => 'Mã đơn không đúng định dạng. Ví dụ: #08086-443874188',
+                'order_code' => 'Mã đơn không đúng định dạng. Ví dụ: #08086-443874188 hoặc GF-888',
             ]);
         }
 

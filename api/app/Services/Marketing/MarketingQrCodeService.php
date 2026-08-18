@@ -4,8 +4,7 @@ namespace App\Services\Marketing;
 
 use App\Models\Branch;
 use App\Models\MarketingQrCode;
-use App\Models\MarketingReviewCampaign;
-use Illuminate\Support\Str;
+use App\Support\Tenancy\TenantContext;
 use Illuminate\Validation\ValidationException;
 
 class MarketingQrCodeService
@@ -42,16 +41,30 @@ class MarketingQrCodeService
 
         foreach ($branches as $branch) {
             $existing = MarketingQrCode::query()
-                ->where('campaign_id', $campaign->id)
                 ->where('branch_id', $branch->id)
                 ->where('destination_type', MarketingQrCode::DESTINATION_ORDER_VERIFY)
+                ->orderBy('id')
                 ->first();
 
             if ($existing) {
+                $dirty = false;
+                if ((int) $existing->campaign_id !== (int) $campaign->id) {
+                    $existing->campaign_id = $campaign->id;
+                    $dirty = true;
+                }
                 if (! $existing->enabled) {
                     $existing->enabled = true;
+                    $dirty = true;
+                }
+                $name = 'QR nhập mã · '.$branch->name;
+                if ($existing->name !== $name) {
+                    $existing->name = $name;
+                    $dirty = true;
+                }
+                if ($dirty) {
                     $existing->save();
                 }
+
                 continue;
             }
 
@@ -60,14 +73,17 @@ class MarketingQrCodeService
                 'name' => 'QR nhập mã · '.$branch->name,
                 'branch_id' => $branch->id,
                 'channel_id' => null,
-                'token' => $this->uniqueToken(),
+                'token' => $this->uniqueTokenForBranch(
+                    (int) ($branch->organization_id ?: TenantContext::id() ?: 0),
+                    (int) $branch->id,
+                ),
                 'destination_type' => MarketingQrCode::DESTINATION_ORDER_VERIFY,
                 'destination_url' => MarketingQrCode::ORDER_VERIFY_PATH,
                 'enabled' => true,
             ]);
         }
 
-        return $this->listBranchQrs($campaign->id);
+        return $this->listBranchQrs();
     }
 
     /**
@@ -75,25 +91,15 @@ class MarketingQrCodeService
      */
     public function listBranchQrs(?int $campaignId = null): array
     {
-        if ($campaignId === null) {
-            $campaignId = MarketingReviewCampaign::query()
-                ->where('status', MarketingReviewCampaign::STATUS_ACTIVE)
-                ->orderByDesc('start_at')
-                ->orderByDesc('id')
-                ->value('id');
-        }
-
-        if (! $campaignId) {
-            return [];
-        }
 
         return MarketingQrCode::query()
             ->with('branch:id,name')
-            ->where('campaign_id', $campaignId)
             ->where('destination_type', MarketingQrCode::DESTINATION_ORDER_VERIFY)
             ->whereNotNull('branch_id')
             ->orderBy('id')
             ->get()
+            ->unique('branch_id')
+            ->values()
             ->map(fn (MarketingQrCode $qr) => $this->payload($qr))
             ->all();
     }
@@ -126,10 +132,12 @@ class MarketingQrCodeService
         return $base.MarketingQrCode::ORDER_VERIFY_PATH.'?token='.$token;
     }
 
-    protected function uniqueToken(): string
+    protected function uniqueTokenForBranch(int $organizationId, int $branchId): string
     {
+        $n = 0;
         do {
-            $token = Str::lower(Str::random(32));
+            $token = substr(hash('sha256', "genky-mkt-qr:{$organizationId}:{$branchId}:{$n}"), 0, 8);
+            $n++;
         } while (
             MarketingQrCode::withoutGlobalScopes()
                 ->where('token', $token)

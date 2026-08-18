@@ -28,9 +28,21 @@ class MarketingRewardCodeSettingService
             $type = 'DAYS';
         }
 
+        $pattern = $this->resolvePattern($data, $settings);
+        $prefix = strtoupper(trim((string) ($data['prefix'] ?? $settings->prefix)));
+        $length = max(1, (int) ($data['length'] ?? $settings->length));
+        if ($pattern === 'XXXX-XXXX') {
+            $prefix = '';
+            $length = 8;
+        } elseif (preg_match('/^([A-Z0-9]+)-(X+)$/', $pattern, $m)) {
+            $prefix = $m[1];
+            $length = strlen($m[2]);
+        }
+
         $settings->fill([
-            'prefix' => strtoupper(trim((string) ($data['prefix'] ?? $settings->prefix))),
-            'length' => max(1, (int) ($data['length'] ?? $settings->length)),
+            'prefix' => $prefix,
+            'length' => $length,
+            'pattern' => $pattern,
             'use_letters' => array_key_exists('use_letters', $data)
                 ? (bool) $data['use_letters']
                 : $settings->use_letters,
@@ -103,6 +115,7 @@ class MarketingRewardCodeSettingService
     {
         return [
             'prefix' => $settings->prefix,
+            'pattern' => (string) $settings->pattern,
             'length' => (int) $settings->length,
             'use_letters' => (bool) $settings->use_letters,
             'use_numbers' => (bool) $settings->use_numbers,
@@ -115,5 +128,24 @@ class MarketingRewardCodeSettingService
             'expiry_date' => optional($settings->expiry_date)?->format('Y-m-d'),
             'reward_before_review' => (bool) $settings->reward_before_review,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    protected function resolvePattern(array $data, MarketingRewardCodeSetting $settings): string
+    {
+        $raw = strtoupper(trim((string) ($data['pattern'] ?? '')));
+        if ($raw !== '') {
+            return mb_substr($raw, 0, 64);
+        }
+
+        $prefix = strtoupper(trim((string) ($data['prefix'] ?? $settings->prefix)));
+        $length = max(1, (int) ($data['length'] ?? $settings->length));
+        if ($prefix === '') {
+            return $length === 8 ? 'XXXX-XXXX' : str_repeat('X', $length);
+        }
+
+        return $prefix.'-'.str_repeat('X', $length);
     }
 }

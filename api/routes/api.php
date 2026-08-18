@@ -59,6 +59,7 @@ Route::prefix('public/review-reward')->middleware('throttle:30,1')->group(functi
     Route::post('spin', [PublicReviewRewardController::class, 'spin']);
     Route::get('claim/{token}', [PublicReviewRewardController::class, 'claim']);
     Route::get('guide-audio', [PublicReviewRewardController::class, 'guideAudio']);
+    Route::get('landing', [PublicReviewRewardController::class, 'landing']);
 });
 
 Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class])->group(function () {
@@ -254,6 +255,9 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     Route::delete('marketing/rewards/{id}/image', [MarketingRewardController::class, 'clearImage']);
     Route::delete('marketing/rewards/{id}', [MarketingRewardController::class, 'destroy']);
 
+    Route::get('marketing/landing', [MarketingLandingController::class, 'show']);
+    Route::put('marketing/landing', [MarketingLandingController::class, 'update']);
+    Route::patch('marketing/landing', [MarketingLandingController::class, 'update']);
     Route::get('marketing/landing/guide-audio', [MarketingLandingController::class, 'showAudio']);
     Route::post('marketing/landing/guide-audio', [MarketingLandingController::class, 'uploadAudio']);
     Route::delete('marketing/landing/guide-audio', [MarketingLandingController::class, 'clearAudio']);

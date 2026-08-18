@@ -146,6 +146,36 @@ class PublicSpinRewardTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_spin_accepts_grabfood_order_format(): void
+    {
+        $ctx = $this->seedShop();
+
+        $this->withToken($ctx['token'])
+            ->putJson('/api/marketing/reward-code-settings', [
+                'reward_before_review' => true,
+                'expiry_type' => 'DAYS',
+                'expiry_days' => 7,
+            ])
+            ->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $spin = $this->postJson('/api/public/review-reward/spin', [
+            'org_id' => $ctx['org_id'],
+            'order_code' => 'gf-888',
+        ])->assertOk()->json();
+
+        $this->assertTrue($spin['success']);
+        $this->assertNotEmpty($spin['reward']['code']);
+
+        $again = $this->postJson('/api/public/review-reward/spin', [
+            'org_id' => $ctx['org_id'],
+            'order_code' => 'GF-888',
+        ])->assertOk()->json();
+
+        $this->assertTrue($again['already_issued']);
+        $this->assertSame($spin['reward']['code'], $again['reward']['code']);
+    }
+
     public function test_reward_before_review_then_reconcile_cancels_without_review(): void
     {
         $ctx = $this->seedShop();

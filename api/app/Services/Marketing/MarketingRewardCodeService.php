@@ -283,14 +283,10 @@ class MarketingRewardCodeService
         $alphabet = $this->alphabet($settings);
         $length = max(1, (int) $settings->length);
         $prefix = strtoupper(trim((string) $settings->prefix));
+        $pattern = strtoupper(trim((string) $settings->pattern));
 
         for ($attempt = 0; $attempt < 30; $attempt++) {
-            $body = '';
-            for ($i = 0; $i < $length; $i++) {
-                $body .= $alphabet[random_int(0, strlen($alphabet) - 1)];
-            }
-
-            $code = $prefix !== '' ? "{$prefix}-{$body}" : $body;
+            $code = $this->formatCode($pattern, $prefix, $length, $alphabet);
 
             $exists = MarketingRewardCode::query()
                 ->where('organization_id', $organizationId)
@@ -305,6 +301,35 @@ class MarketingRewardCodeService
         throw ValidationException::withMessages([
             'code' => 'Không tạo được mã quà duy nhất. Thử lại.',
         ]);
+    }
+
+    protected function formatCode(
+        string $pattern,
+        string $prefix,
+        int $length,
+        string $alphabet,
+    ): string {
+        if ($pattern === 'XXXX-XXXX') {
+            return $this->randomBody($alphabet, 4).'-'.$this->randomBody($alphabet, 4);
+        }
+
+        if (preg_match('/^([A-Z0-9]+)-(X+)$/', $pattern, $m)) {
+            return $m[1].'-'.$this->randomBody($alphabet, strlen($m[2]));
+        }
+
+        $body = $this->randomBody($alphabet, $length);
+
+        return $prefix !== '' ? $prefix.'-'.$body : $body;
+    }
+
+    protected function randomBody(string $alphabet, int $length): string
+    {
+        $body = '';
+        for ($i = 0; $i < max(1, $length); $i++) {
+            $body .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        }
+
+        return $body;
     }
 
     protected function alphabet(MarketingRewardCodeSetting $settings): string

@@ -5,6 +5,7 @@ namespace App\Services\Marketing;
 use App\Models\MarketingCampaignReward;
 use App\Models\MarketingReward;
 use App\Models\MarketingRewardCode;
+use App\Models\MarketingRewardRedemption;
 use App\Models\MarketingReviewCampaign;
 use App\Support\Tenancy\TenantContext;
 use Illuminate\Http\UploadedFile;
@@ -115,18 +116,19 @@ class MarketingRewardService
 
     public function delete(MarketingReward $reward): void
     {
-        $hasCodes = MarketingRewardCode::query()
-            ->where('reward_id', $reward->id)
-            ->exists();
-        if ($hasCodes) {
-            throw ValidationException::withMessages([
-                'reward' => 'Không xoá được: món đã có mã quà. Hãy tắt món thay vì xoá.',
-            ]);
-        }
-
-        $this->deleteImageFile($reward->image);
-        MarketingCampaignReward::query()->where('reward_id', $reward->id)->delete();
-        $reward->delete();
+        DB::transaction(function () use ($reward) {
+            MarketingRewardCode::query()
+                ->where('reward_id', $reward->id)
+                ->update(['reward_id' => null]);
+            MarketingRewardRedemption::query()
+                ->where('reward_id', $reward->id)
+                ->update(['reward_id' => null]);
+            MarketingCampaignReward::query()
+                ->where('reward_id', $reward->id)
+                ->delete();
+            $this->deleteImageFile($reward->image);
+            $reward->delete();
+        });
     }
 
     /**
