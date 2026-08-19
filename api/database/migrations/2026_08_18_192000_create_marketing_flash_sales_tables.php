@@ -14,8 +14,8 @@ return new class extends Migration
             $table->foreignId('branch_id')->nullable()->constrained()->nullOnDelete();
             $table->string('title', 200);
             $table->string('banner', 16)->default('88');
-            $table->timestamp('starts_at');
-            $table->timestamp('ends_at');
+            $table->dateTime('starts_at');
+            $table->dateTime('ends_at');
             $table->json('slots')->nullable();
             $table->unsignedInteger('quota')->default(0);
             $table->unsignedInteger('sold_count')->default(0);
