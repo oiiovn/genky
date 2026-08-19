@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AttendanceTable } from "@/components/dashboard/AttendanceTable";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { LeaveInbox } from "@/components/dashboard/LeaveInbox";
+import { MobileDashboard } from "@/components/dashboard/MobileDashboard";
 import { PerformanceCard } from "@/components/dashboard/PerformanceCard";
 import dynamic from "next/dynamic";
 import {
@@ -70,7 +71,17 @@ export default function DashboardPage() {
   }, 15_000, data !== null);
 
   return (
-    <main className="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">
+    <>
+      <div className="lg:hidden">
+        {!data ? (
+          <div className="px-4 py-16 text-center text-sm text-slate-500">
+            Đang tải tổng quan...
+          </div>
+        ) : (
+          <MobileDashboard data={data} onChanged={() => void reload()} />
+        )}
+      </div>
+      <main className="hidden flex-1 space-y-5 overflow-y-auto p-5 lg:block lg:p-6">
       {!data ? (
         <div className="rounded-2xl border border-slate-200 bg-white px-4 py-16 text-center text-sm text-slate-500">
           Đang tải tổng quan...
@@ -105,5 +116,6 @@ export default function DashboardPage() {
         </>
       ) : null}
     </main>
+    </>
   );
 }

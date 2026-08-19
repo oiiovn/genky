@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import type { ScheduleAssignment } from "@/lib/schedule-api";
 import { shiftChipStyle, type MonthDay } from "@/lib/schedule-utils";
+import { leaveChipStyle } from "@/lib/schedule-leave";
 
 const MAX_CHIPS = 3;
 
@@ -45,6 +46,7 @@ function summarizeDay(assignments: ScheduleAssignment[]): MonthDaySummary {
 export function ScheduleMonthGrid({
   days,
   byDate,
+  leavesByDate = {},
   selectedDate,
   loading,
   refreshing,
@@ -52,6 +54,7 @@ export function ScheduleMonthGrid({
 }: {
   days: MonthDay[];
   byDate: Record<string, ScheduleAssignment[]>;
+  leavesByDate?: Record<string, { label: string; count: number; type?: string }[]>;
   selectedDate?: string | null;
   loading?: boolean;
   refreshing?: boolean;
@@ -104,6 +107,7 @@ export function ScheduleMonthGrid({
           }
 
           const summary = summarizeDay(byDate[day.iso] ?? []);
+          const leaveItems = leavesByDate[day.iso] ?? [];
           const chips = summary.shifts.slice(0, MAX_CHIPS);
           const extra = summary.shifts.length - chips.length;
           const selected = selectedDate === day.iso;
@@ -142,6 +146,18 @@ export function ScheduleMonthGrid({
               </p>
 
               <div className="mt-1.5 space-y-1">
+                {leaveItems.map((item) => {
+                  const style = leaveChipStyle(item.type || "annual");
+                  return (
+                    <div
+                      key={item.label}
+                      className="truncate rounded-md border px-1.5 py-0.5 text-[10px] font-semibold leading-tight"
+                      style={style}
+                    >
+                      {item.label} · {item.count}
+                    </div>
+                  );
+                })}
                 {chips.map((shift) => {
                   const style = shiftChipStyle(shift.color);
                   return (

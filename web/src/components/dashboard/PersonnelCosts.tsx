@@ -26,8 +26,14 @@ export function PersonnelCosts({
           </h2>
           <p className="mt-1 text-xl font-bold text-slate-800">
             {(data.total / 1_000_000).toFixed(2)}tr{" "}
-            <span className="text-sm font-semibold text-emerald-500">
-              ↑ {data.growth}%
+            <span
+              className={
+                data.growth < 0
+                  ? "text-sm font-semibold text-rose-500"
+                  : "text-sm font-semibold text-emerald-500"
+              }
+            >
+              {data.growth < 0 ? "↓" : "↑"} {Math.abs(data.growth)}%
             </span>
           </p>
         </div>

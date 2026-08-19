@@ -8,6 +8,7 @@ import { ShiftFormModal } from "@/components/shifts/ShiftFormModal";
 import { ShiftStatsCards } from "@/components/shifts/ShiftStatsCards";
 import { ShiftTable } from "@/components/shifts/ShiftTable";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { MobileShifts } from "@/components/shifts/MobileShifts";
 import {
   createShift,
   deleteShift,
@@ -205,7 +206,63 @@ export default function ShiftsPage() {
 
   return (
     <>
-        <main className="flex-1 overflow-y-auto p-5 lg:p-6">
+        <input
+          ref={importRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleImport(file);
+            e.target.value = "";
+          }}
+        />
+        <div className="lg:hidden">
+          {error ? (
+            <div className="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
+              {error}
+            </div>
+          ) : null}
+          <MobileShifts
+            stats={stats}
+            rows={rows}
+            total={total}
+            page={page}
+            lastPage={lastPage}
+            selected={selected}
+            statusFilter={statusFilter}
+            activeTab={activeTab}
+            loading={loading || listLoading}
+            deactivating={deactivating}
+            onImport={() => importRef.current?.click()}
+            onExport={() => void handleExport()}
+            onAdd={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+            onTabChange={setActiveTab}
+            onStatusFilterChange={(v) => {
+              setStatusFilter(v);
+              void loadList({ status: v, page: 1 });
+            }}
+            onSelect={setSelected}
+            onEdit={(shift) => {
+              setEditing(shift);
+              setModalOpen(true);
+            }}
+            onDuplicate={(shift) => {
+              void handleDuplicate(shift);
+            }}
+            onDelete={setPendingDelete}
+            onDeactivate={(shift) => {
+              void handleDeactivate(shift);
+            }}
+            onPageChange={(p) => {
+              void loadList({ page: p });
+            }}
+          />
+        </div>
+        <main className="hidden flex-1 overflow-y-auto p-5 lg:block lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-800">Ca làm</h2>
@@ -214,17 +271,6 @@ export default function ShiftsPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={importRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleImport(file);
-                  e.target.value = "";
-                }}
-              />
               <button
                 type="button"
                 onClick={() => importRef.current?.click()}

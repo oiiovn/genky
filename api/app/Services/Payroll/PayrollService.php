@@ -2,13 +2,16 @@
 
 namespace App\Services\Payroll;
 
+use App\Models\AttendanceLog;
 use App\Models\Employee;
+use App\Models\EmployeeAdjustment;
 use App\Models\MonthlyWorkSummary;
 use App\Models\PayrollEntry;
 use App\Models\PayrollPayment;
 use App\Services\Employee\EmployeeService;
 use App\Services\Work\MonthlyWorkSummaryService;
 use App\Support\Authorization\PayrollPermission;
+use App\Support\DailyWage;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -140,6 +143,74 @@ class PayrollService
                 'paid' => $current['paid'],
                 'pending' => $current['pending'],
             ],
+        ];
+    }
+
+    /**
+     * @return array{
+     *   month: string,
+     *   total: int,
+     *   total_formatted: string,
+     *   growth: float,
+     *   employees: int,
+     *   basic_salary: int,
+     *   overtime: int,
+     *   bonus: int,
+     *   fine: int,
+     *   others: int,
+     *   breakdown: list<array{label: string, value: int, color: string}>
+     * }
+     */
+    public function salaryProjection(int $year, int $month, ?int $branchId = null): array
+    {
+        PayrollPermission::for()->assertCanViewAny();
+
+        $current = $this->projectionTotals($year, $month, $branchId);
+        $prevDate = Carbon::create($year, $month, 1, 12, 0, 0, 'Asia/Ho_Chi_Minh')->subMonth();
+        $previous = $this->projectionTotals((int) $prevDate->year, (int) $prevDate->month, $branchId);
+
+        return [
+            'month' => sprintf('%02d/%d', $month, $year),
+            'total' => $current['total'],
+            'total_formatted' => $this->formatVnd($current['total']),
+            'growth' => $this->percentDelta($current['total'], $previous['total']),
+            'employees' => $current['employees'],
+            'basic_salary' => $current['basic_salary'],
+            'overtime' => $current['overtime'],
+            'bonus' => $current['bonus'],
+            'fine' => $current['fine'],
+            'others' => $current['others'],
+            'breakdown' => [
+                ['label' => 'Lương cơ bản', 'value' => $current['basic_salary'], 'color' => '#8B5CF6'],
+                ['label' => 'Làm thêm giờ', 'value' => $current['overtime'], 'color' => '#22C55E'],
+                ['label' => 'Thưởng', 'value' => $current['bonus'], 'color' => '#F59E0B'],
+                ['label' => 'Phạt', 'value' => $current['fine'], 'color' => '#EF4444'],
+                ['label' => 'Khác', 'value' => $current['others'], 'color' => '#94A3B8'],
+            ],
+        ];
+    }
+
+    /**
+     * @return array{month: string, total: int, growth: float, days: list<array{day: int, value: float}>}
+     */
+    public function personnelCosts(int $year, int $month, ?int $branchId = null): array
+    {
+        PayrollPermission::for()->assertCanViewAny();
+
+        $current = $this->projectionTotals($year, $month, $branchId);
+        $daily = $this->dailyCostTotals($year, $month, $branchId);
+        $prevDate = Carbon::create($year, $month, 1, 12, 0, 0, 'Asia/Ho_Chi_Minh')->subMonth();
+        $previous = $this->projectionTotals((int) $prevDate->year, (int) $prevDate->month, $branchId);
+        $total = $current['total'] > 0 ? $current['total'] : $daily['total'];
+        $prevTotal = $previous['total'] > 0
+            ? $previous['total']
+            : $this->dailyCostTotals((int) $prevDate->year, (int) $prevDate->month, $branchId)['total'];
+
+        return [
+            'month' => sprintf('%02d/%d', $month, $year),
+            'total' => $total,
+            'growth' => $this->percentDelta($total, $prevTotal),
+            'days' => $daily['days'],
         ];
     }
 
@@ -788,19 +859,26 @@ class PayrollService
     }
 
     /**
-     * @param  array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int}  $current
-     * @param  array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int}  $previous
+     * @param  array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int, paid_amount: int}  $current
+     * @param  array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int, paid_amount: int}  $previous
      * @return array<string, float|int>
      */
     protected function statsFromAggregates(array $current, array $previous): array
     {
+        $net = $current['fund'];
+        $paidAmount = $current['paid_amount'];
+        $remaining = max(0, $net - $paidAmount);
+
         return [
             'employees' => $current['employees'],
-            'fund' => $current['fund'],
             'income' => $current['income'],
+            'fund' => $net,
+            'net' => $net,
             'deductions' => $current['deductions'],
-            'paid_percent' => $current['employees'] > 0
-                ? round(($current['paid'] / $current['employees']) * 100, 1)
+            'paid_amount' => $paidAmount,
+            'remaining' => $remaining,
+            'paid_percent' => $net > 0
+                ? round(($paidAmount / $net) * 100, 1)
                 : 0,
             'fund_delta' => $this->percentDelta($current['fund'], $previous['fund']),
             'income_delta' => $this->percentDelta($current['income'], $previous['income']),
@@ -820,7 +898,7 @@ class PayrollService
     }
 
     /**
-     * @return array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int}
+     * @return array{employees: int, income: int, deductions: int, fund: int, paid: int, pending: int, paid_amount: int}
      */
     protected function aggregateMonth(int $year, int $month, array $filters): array
     {
@@ -829,6 +907,7 @@ class PayrollService
             ->selectRaw('coalesce(sum(income), 0) as income')
             ->selectRaw('coalesce(sum(deductions), 0) as deductions')
             ->selectRaw('coalesce(sum(net), 0) as fund')
+            ->selectRaw('coalesce(sum(paid_amount), 0) as paid_amount')
             ->selectRaw("coalesce(sum(case when row_status = 'paid' then 1 else 0 end), 0) as paid")
             ->first();
 
@@ -840,6 +919,7 @@ class PayrollService
             'income' => (int) round((float) ($row->income ?? 0)),
             'deductions' => (int) round((float) ($row->deductions ?? 0)),
             'fund' => (int) round((float) ($row->fund ?? 0)),
+            'paid_amount' => (int) round((float) ($row->paid_amount ?? 0)),
             'paid' => $paid,
             'pending' => max(0, $employees - $paid),
         ];
@@ -939,6 +1019,7 @@ class PayrollService
             ->selectRaw("({$income}) as income")
             ->selectRaw("({$deductions}) as deductions")
             ->selectRaw("({$net}) as net")
+            ->selectRaw("({$paidAmount}) as paid_amount")
             ->selectRaw("({$rowStatus}) as row_status");
 
         if ($department !== '') {
@@ -985,6 +1066,170 @@ class PayrollService
         return round((($current - $previous) / $previous) * 100, 1);
     }
 
+    /**
+     * @return array{
+     *   employees: int,
+     *   basic_salary: int,
+     *   overtime: int,
+     *   bonus: int,
+     *   fine: int,
+     *   others: int,
+     *   total: int
+     * }
+     */
+    protected function projectionTotals(int $year, int $month, ?int $branchId): array
+    {
+        $employees = $this->scopedEmployees($branchId);
+        // Bảng công tháng luôn lưu branch_id = 0 (toàn tổ chức).
+        $rows = $this->hydrateMany($employees, $year, $month, null);
+        $income = (int) $rows->sum('income');
+        $fund = (int) $rows->sum('net');
+        $overtime = (int) $rows->sum('overtime_pay');
+        $basic = (int) $rows->sum('basic_pay');
+        if ($basic === 0 && $overtime === 0 && $income > 0) {
+            $basic = $income;
+        }
+
+        $adjustments = $this->adjustmentTotals($year, $month, $branchId);
+        $bonus = $adjustments['reward'];
+        $penalty = $adjustments['penalty'];
+        $fine = $penalty > 0 ? -$penalty : 0;
+        $total = $fund + $bonus - $penalty;
+        $others = $total - ($basic + $overtime + $bonus + $fine);
+
+        return [
+            'employees' => $employees->count(),
+            'basic_salary' => $basic,
+            'overtime' => $overtime,
+            'bonus' => $bonus,
+            'fine' => $fine,
+            'others' => $others,
+            'total' => $total,
+        ];
+    }
+
+    /**
+     * @return array{reward: int, penalty: int}
+     */
+    protected function adjustmentTotals(int $year, int $month, ?int $branchId): array
+    {
+        $from = Carbon::create($year, $month, 1, 12, 0, 0, 'Asia/Ho_Chi_Minh')->startOfMonth();
+        $to = $from->copy()->endOfMonth();
+
+        $query = EmployeeAdjustment::query()
+            ->whereBetween('occurred_on', [$from->toDateString(), $to->toDateString()]);
+
+        if ($branchId) {
+            $query->whereHas(
+                'employee.branches',
+                fn ($q) => $q->where('branches.id', $branchId)
+            );
+        }
+
+        $rows = $query->get(['type', 'amount']);
+
+        return [
+            'reward' => (int) $rows->where('type', EmployeeAdjustment::TYPE_REWARD)->sum('amount'),
+            'penalty' => (int) $rows->where('type', EmployeeAdjustment::TYPE_PENALTY)->sum('amount'),
+        ];
+    }
+
+    protected function formatVnd(int $value): string
+    {
+        $sign = $value < 0 ? '-' : '';
+
+        return $sign.number_format(abs($value), 0, ',', '.').' đ';
+    }
+
+    /**
+     * @return array{total: int, days: list<array{day: int, value: float}>}
+     */
+    protected function dailyCostTotals(int $year, int $month, ?int $branchId): array
+    {
+        $from = Carbon::create($year, $month, 1, 12, 0, 0, 'Asia/Ho_Chi_Minh')->startOfMonth();
+        $to = $from->copy()->endOfMonth();
+        $daysInMonth = $from->daysInMonth;
+        $byDay = array_fill(1, $daysInMonth, 0);
+
+        $logs = AttendanceLog::query()
+            ->with(['employee', 'shift'])
+            ->whereBetween('work_date', [$from->toDateString(), $to->toDateString()])
+            ->whereNotNull('check_in_at')
+            ->whereNotIn('status', [AttendanceLog::STATUS_LEAVE, AttendanceLog::STATUS_ABSENT])
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+            ->get();
+
+        $tz = 'Asia/Ho_Chi_Minh';
+        $now = Carbon::now($tz);
+
+        foreach ($logs as $log) {
+            $employee = $log->employee;
+            if (! $employee) {
+                continue;
+            }
+            $until = $this->costUntil($log, $now, $tz);
+            $day = (int) $log->work_date->format('j');
+            $minutes = DailyWage::payableMinutes(
+                $log,
+                $log->shift,
+                (bool) $employee->pay_from_shift_start,
+                $log->check_out_at ? null : $until,
+            );
+            $byDay[$day] += DailyWage::amount($employee, $minutes);
+        }
+
+        $adjustments = EmployeeAdjustment::query()
+            ->whereBetween('occurred_on', [$from->toDateString(), $to->toDateString()])
+            ->when(
+                $branchId,
+                fn ($q) => $q->whereHas(
+                    'employee.branches',
+                    fn ($b) => $b->where('branches.id', $branchId)
+                )
+            )
+            ->get(['type', 'amount', 'occurred_on']);
+
+        foreach ($adjustments as $row) {
+            $day = (int) Carbon::parse($row->occurred_on)->format('j');
+            if (! isset($byDay[$day])) {
+                continue;
+            }
+            $byDay[$day] += $row->type === EmployeeAdjustment::TYPE_REWARD
+                ? (int) $row->amount
+                : -(int) $row->amount;
+        }
+
+        return [
+            'total' => (int) array_sum($byDay),
+            'days' => collect($byDay)
+                ->map(fn ($value, $day) => [
+                    'day' => (int) $day,
+                    'value' => round(((int) $value) / 1_000_000, 2),
+                ])
+                ->values()
+                ->all(),
+        ];
+    }
+
+    protected function costUntil(AttendanceLog $log, Carbon $now, string $tz): ?Carbon
+    {
+        if ($log->check_out_at) {
+            return $log->check_out_at;
+        }
+        if (! $log->check_in_at) {
+            return null;
+        }
+
+        $workDate = $log->work_date?->toDateString()
+            ?? $log->check_in_at->copy()->timezone($tz)->toDateString();
+
+        if ($workDate === $now->toDateString()) {
+            return $now;
+        }
+
+        return Carbon::parse($workDate, $tz)->endOfDay();
+    }
+
     protected function hydrateRow(
         Employee $employee,
         ?MonthlyWorkSummary $summary,
@@ -1022,6 +1267,13 @@ class PayrollService
             $rowStatus = PayrollEntry::STATUS_PARTIAL;
         }
 
+        $otMinutes = min((int) ($summary?->ot_minutes ?? 0), $workedMinutes);
+        $overtimePay = 0;
+        if ($workedMinutes > 0 && $otMinutes > 0 && $income > 0) {
+            $overtimePay = (int) round($income * ($otMinutes / $workedMinutes));
+            $overtimePay = min($overtimePay, $income);
+        }
+
         $dept = $employee->position?->name ?? 'Chưa phân bổ';
 
         return [
@@ -1034,6 +1286,8 @@ class PayrollService
             'paid_leave_days' => $paidLeaveDays,
             'unpaid_days' => $unpaidDays,
             'income' => $income,
+            'overtime_pay' => $overtimePay,
+            'basic_pay' => max(0, $income - $overtimePay),
             'deductions' => $deductions,
             'net' => $net,
             'paid_amount' => $paidAmount,

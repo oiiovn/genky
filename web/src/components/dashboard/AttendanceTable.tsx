@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 import type { AttendanceRow } from "@/types/dashboard";
@@ -19,12 +20,12 @@ export function AttendanceTable({ rows }: { rows: AttendanceRow[] }) {
         <h2 className="text-base font-semibold text-slate-800">
           Tình hình chấm công hôm nay
         </h2>
-        <button
-          type="button"
+        <Link
+          href="/attendance"
           className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
         >
           Xem tất cả
-        </button>
+        </Link>
       </div>
 
       <div className="overflow-x-auto">

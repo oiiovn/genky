@@ -4,6 +4,11 @@ export type Kpi = {
   value: number;
   percent: number | null;
   color: "blue" | "green" | "orange" | "red" | "sky";
+  trend?: {
+    value: number;
+    dir: "up" | "down" | "flat";
+    label: string;
+  } | null;
 };
 
 export type AttendanceRow = {
@@ -12,6 +17,7 @@ export type AttendanceRow = {
   role: string;
   avatar: string | null;
   shift: string;
+  shift_time?: string | null;
   check_in: string | null;
   status: "on_time" | "late" | "pending" | "on_leave";
   status_label: string;
@@ -103,6 +109,11 @@ export type DashboardData = ShellData & {
     total_formatted: string;
     growth: number;
     employees: number;
+    basic_salary?: number;
+    overtime?: number;
+    bonus?: number;
+    fine?: number;
+    others?: number;
     breakdown: { label: string; value: number; color: string }[];
   };
   personnel_costs: {
@@ -121,6 +132,8 @@ export type DashboardData = ShellData & {
     name: string;
     time: string;
     employees: number;
+    when?: string;
+    remaining?: string;
   }[];
 };
 

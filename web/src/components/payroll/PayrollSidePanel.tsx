@@ -125,7 +125,11 @@ export function PayrollSidePanel({
           </span>
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Quỹ đã chi: {formatMoney(stats.fund * (paidPct / 100))}
+          Đã chi {formatMoney(stats.paid_amount ?? 0)} · Còn nợ{" "}
+          {formatMoney(
+            stats.remaining ??
+              Math.max(0, (stats.net ?? stats.fund) - (stats.paid_amount ?? 0)),
+          )}
         </p>
       </section>
 

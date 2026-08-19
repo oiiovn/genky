@@ -79,6 +79,8 @@ class MarketingRewardRedemptionService
             ]);
         }
 
+        $row = app(MarketingRewardCodeService::class)->ensureRewardAttached($row);
+
         $this->syncExpired($row);
 
         $valid = $row->status === MarketingRewardCode::STATUS_ISSUED

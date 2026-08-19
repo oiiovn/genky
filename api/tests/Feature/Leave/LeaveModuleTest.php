@@ -238,4 +238,115 @@ class LeaveModuleTest extends TestCase
                 ->exists()
         );
     }
+
+    public function test_list_approved_leaves_filters_by_overlapping_range(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Lê Hoàng Phương Oanh',
+            'email' => 'oanh-leave-range@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $inside = $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $employee['id'],
+            'type' => LeaveRequest::TYPE_ANNUAL,
+            'from' => '2026-08-19',
+            'to' => '2026-08-22',
+            'reason' => 'Việc nhà có lý do',
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $outside = $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $employee['id'],
+            'type' => LeaveRequest::TYPE_PERSONAL,
+            'from' => '2026-08-01',
+            'to' => '2026-08-02',
+            'reason' => 'Ngoài tuần',
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $list = $this->withToken($ctx['token'])
+            ->getJson('/api/leaves?status=approved&from=2026-08-17&to=2026-08-23')
+            ->assertOk()
+            ->json('data');
+
+        $ids = collect($list)->pluck('id')->all();
+        $this->assertContains($inside['id'], $ids);
+        $this->assertNotContains($outside['id'], $ids);
+
+        $row = collect($list)->firstWhere('id', $inside['id']);
+        $this->assertSame('annual', $row['type']);
+        $this->assertSame('Nghỉ phép năm', $row['type_label']);
+        $this->assertSame('2026-08-19', $row['from']);
+        $this->assertSame('2026-08-22', $row['to']);
+        $this->assertSame($employee['id'], $row['employee_id']);
+    }
+
+    public function test_owner_can_update_and_delete_approved_leave(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+
+        $employee = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Bảo Châu',
+            'email' => 'chau-leave-edit@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $leave = $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $employee['id'],
+            'type' => LeaveRequest::TYPE_PERSONAL,
+            'from' => '2026-08-22',
+            'to' => '2026-08-22',
+            'reason' => 'Sinh nhật má nuôi',
+        ])->assertCreated()->json('data');
+
+        $this->app['auth']->forgetGuards();
+
+        $updated = $this->withToken($ctx['token'])->putJson("/api/leaves/{$leave['id']}", [
+            'employee_id' => $employee['id'],
+            'type' => LeaveRequest::TYPE_ANNUAL,
+            'from' => '2026-08-21',
+            'to' => '2026-08-22',
+            'reason' => 'Nghỉ phép năm',
+        ])->assertOk()->json('data');
+
+        $this->assertSame('annual', $updated['type']);
+        $this->assertSame('2026-08-21', $updated['from']);
+        $this->assertSame('2026-08-22', $updated['to']);
+        $this->assertSame(2, $updated['days']);
+        $this->assertSame('Nghỉ phép năm', $updated['reason']);
+
+        $this->assertTrue(
+            AttendanceLog::withoutGlobalScopes()
+                ->where('employee_id', $employee['id'])
+                ->whereDate('work_date', '2026-08-21')
+                ->where('status', AttendanceLog::STATUS_LEAVE)
+                ->where('leave_request_id', $leave['id'])
+                ->exists()
+        );
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->deleteJson("/api/leaves/{$leave['id']}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Đã xoá đơn nghỉ phép.');
+
+        $this->assertFalse(
+            LeaveRequest::withoutGlobalScopes()->whereKey($leave['id'])->exists()
+        );
+        $this->assertFalse(
+            AttendanceLog::withoutGlobalScopes()
+                ->where('leave_request_id', $leave['id'])
+                ->exists()
+        );
+    }
 }

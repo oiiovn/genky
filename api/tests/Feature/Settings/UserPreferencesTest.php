@@ -176,4 +176,55 @@ class UserPreferencesTest extends TestCase
             ->assertOk()
             ->assertJsonPath('preferences.sidebar_style', 'collapsed');
     }
+
+    public function test_user_can_persist_payroll_table_columns(): void
+    {
+        $ctx = $this->seedOwner();
+
+        $this->withToken($ctx['token'])
+            ->patchJson('/api/me/preferences', [
+                'payroll_table_columns' => [
+                    'employee',
+                    'totalHours',
+                    'netIncome',
+                    'paid',
+                    'remaining',
+                    'status',
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('preferences.payroll_table_columns.0', 'employee')
+            ->assertJsonPath('preferences.payroll_table_columns.1', 'totalHours');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->patchJson('/api/me/preferences', [
+                'sidebar_style' => 'collapsed',
+            ])
+            ->assertOk()
+            ->assertJsonPath('preferences.sidebar_style', 'collapsed')
+            ->assertJsonPath('preferences.payroll_table_columns.1', 'totalHours');
+
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->getJson('/api/me/preferences')
+            ->assertOk()
+            ->assertJsonPath('preferences.payroll_table_columns.0', 'employee')
+            ->assertJsonPath('preferences.sidebar_style', 'collapsed');
+    }
+
+    public function test_payroll_table_columns_always_include_employee(): void
+    {
+        $ctx = $this->seedOwner();
+
+        $this->withToken($ctx['token'])
+            ->patchJson('/api/me/preferences', [
+                'payroll_table_columns' => ['netIncome', 'paid'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('preferences.payroll_table_columns.0', 'employee')
+            ->assertJsonPath('preferences.payroll_table_columns.1', 'netIncome');
+    }
 }

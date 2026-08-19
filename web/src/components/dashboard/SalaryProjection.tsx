@@ -32,8 +32,14 @@ export function SalaryProjection({
           <h2 className="text-2xl font-bold tracking-tight">
             {data.total_formatted}
           </h2>
-          <span className="mb-1 rounded-full bg-emerald-400/20 px-2 py-0.5 text-xs font-semibold text-emerald-200">
-            ↑ {data.growth}% so với tháng trước
+          <span
+            className={
+              data.growth < 0
+                ? "mb-1 rounded-full bg-rose-400/20 px-2 py-0.5 text-xs font-semibold text-rose-100"
+                : "mb-1 rounded-full bg-emerald-400/20 px-2 py-0.5 text-xs font-semibold text-emerald-200"
+            }
+          >
+            {data.growth < 0 ? "↓" : "↑"} {Math.abs(data.growth)}% so với tháng trước
           </span>
         </div>
 

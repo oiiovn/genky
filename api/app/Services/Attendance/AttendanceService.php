@@ -56,6 +56,39 @@ class AttendanceService
         return $this->shiftCardsFromRoster($date, $this->roster($date, $branchId));
     }
 
+    /**
+     * @return array{
+     *   rows: \Illuminate\Support\Collection<int, array<string, mixed>>,
+     *   total: int,
+     *   working: int,
+     *   not_checked_in: int,
+     *   checked_out: int,
+     *   on_leave: int,
+     *   ontime: int,
+     *   late: int,
+     *   absent: int,
+     *   overtime: int
+     * }
+     */
+    public function overviewForDate(string $date, ?int $branchId = null): array
+    {
+        AttendancePermission::for()->assertCanViewAny();
+
+        $rows = $this->roster($date, $branchId);
+        $stats = $this->statsFromRoster($rows);
+
+        return [
+            ...$stats,
+            'rows' => $rows,
+            'ontime' => $rows->filter(
+                fn ($r) => in_array($r['check_in_tone'] ?? '', ['early', 'ontime'], true)
+            )->count(),
+            'late' => $rows->filter(fn ($r) => ($r['check_in_tone'] ?? '') === 'late')->count(),
+            'absent' => $rows->filter(fn ($r) => ($r['ui_status'] ?? '') === 'absent')->count(),
+            'overtime' => $rows->filter(fn ($r) => ($r['check_out_tone'] ?? '') === 'late')->count(),
+        ];
+    }
+
     public function list(array $filters): LengthAwarePaginator
     {
         AttendancePermission::for()->assertCanViewAny();
@@ -1148,7 +1181,7 @@ class AttendanceService
             // end next day already on $at date typically
         }
 
-        $diff = $base->diffInMinutes($at, false);
+        $diff = (int) round($base->diffInMinutes($at, false));
 
         if (abs($diff) <= 2) {
             return ['ontime', 'Đúng giờ'];

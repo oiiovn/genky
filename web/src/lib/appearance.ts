@@ -205,6 +205,7 @@ export async function resetInterfaceSettings(): Promise<AppearanceSettings> {
 
 export type UserPreferences = {
   sidebar_style: SidebarStyle | null;
+  payroll_table_columns?: string[] | null;
 };
 
 export async function fetchUserPreferences(): Promise<UserPreferences> {

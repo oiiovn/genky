@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   AlertTriangle,
   CalendarCheck,
@@ -31,12 +32,12 @@ export function UpcomingShifts({
         <h2 className="text-base font-semibold text-slate-800">
           Ca làm sắp tới
         </h2>
-        <button
-          type="button"
+        <Link
+          href="/schedule"
           className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
         >
           Xem lịch
-        </button>
+        </Link>
       </div>
 
       <ul className="space-y-3">
@@ -67,12 +68,12 @@ export function UpcomingShifts({
         )}
       </ul>
 
-      <button
-        type="button"
-        className="mt-3 w-full text-center text-xs font-medium text-indigo-600 hover:text-indigo-700"
+      <Link
+        href="/shifts"
+        className="mt-3 block w-full text-center text-xs font-medium text-indigo-600 hover:text-indigo-700"
       >
         Xem tất cả ca làm
-      </button>
+      </Link>
     </section>
   );
 }

@@ -15,6 +15,7 @@ import { EmployeeTable } from "@/components/employees/EmployeeTable";
 import { EmployeeViewModal } from "@/components/employees/EmployeeViewModal";
 import { InviteLinkModal } from "@/components/employees/InviteLinkModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { MobileEmployees } from "@/components/employees/MobileEmployees";
 import {
   deleteEmployee,
   fetchEmployeeStats,
@@ -159,7 +160,59 @@ export default function EmployeesPage() {
 
   return (
     <>
-        <main className="flex-1 overflow-y-auto p-5 lg:p-6">
+        <div className="lg:hidden">
+          {error ? (
+            <div className="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
+              {error}
+            </div>
+          ) : null}
+          <MobileEmployees
+            stats={stats}
+            rows={rows}
+            total={total}
+            page={page}
+            lastPage={lastPage}
+            search={tableSearch}
+            loading={loading || listLoading}
+            draft={draft}
+            branches={branches}
+            positions={positions}
+            onSearchChange={setTableSearch}
+            onSearchSubmit={() => {
+              const next = { ...applied, search: tableSearch };
+              setApplied(next);
+              setDraft(next);
+              void loadList(next, 1);
+            }}
+            onPageChange={(p) => {
+              void loadList(applied, p);
+            }}
+            onEdit={(emp) => {
+              setViewing(null);
+              setEditing(emp);
+              setModalOpen(true);
+            }}
+            onView={(emp) => setViewing(emp)}
+            onDelete={(emp) => setPendingDelete(emp)}
+            onAdd={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+            onDraftChange={setDraft}
+            onFilterApply={() => {
+              setApplied(draft);
+              setTableSearch(draft.search);
+              void loadList(draft, 1);
+            }}
+            onFilterReset={() => {
+              setDraft(emptyFilters);
+              setApplied(emptyFilters);
+              setTableSearch("");
+              void loadList(emptyFilters, 1);
+            }}
+          />
+        </div>
+        <main className="hidden flex-1 overflow-y-auto p-5 lg:block lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-800">Nhân viên</h2>

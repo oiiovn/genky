@@ -1090,3 +1090,311 @@ export async function verifyPublicRewardByQrToken(
 
   return claimJson.reward;
 }
+
+export type FlashSaleBanner = "88" | "99" | "mid" | "end";
+export type FlashSaleStatus = "running" | "upcoming" | "ended";
+
+export type FlashSaleProduct = {
+  id?: number;
+  name: string;
+  emoji: string;
+  tone: string;
+  image_url: string | null;
+  price: number;
+  original: number;
+  slot_start: string | null;
+  slot_end: string | null;
+  slot_label: string;
+  status: FlashSaleStatus;
+  remain_ms: number;
+  remain_until: string | null;
+};
+
+export type FlashSaleCampaign = {
+  id: number;
+  title: string;
+  branch_id: number | null;
+  branch: string;
+  banner: FlashSaleBanner;
+  status: FlashSaleStatus;
+  starts_at: string | null;
+  ends_at: string | null;
+  date_label: string;
+  slots: string[];
+  slots_label: string;
+  quota: number;
+  sold: number;
+  revenue: number;
+  progress: number;
+  remain_ms: number;
+  remain_until: string | null;
+  active_product_id: number | null;
+  active_product_name: string | null;
+  products: FlashSaleProduct[];
+  extra_products: number;
+};
+
+export type FlashSaleStats = {
+  total: number;
+  running: number;
+  upcoming: number;
+  ended: number;
+  upcoming_in_24h: number;
+  created_this_month: number;
+  created_last_month: number;
+  month_delta: number;
+};
+
+export type FlashSaleListResult = {
+  stats: FlashSaleStats;
+  data: FlashSaleCampaign[];
+};
+
+export type FlashSaleFilters = {
+  status?: "all" | FlashSaleStatus;
+  branch_id?: number | "";
+  month?: string;
+  search?: string;
+};
+
+export type FlashSalePayload = {
+  title: string;
+  branch_id?: number | null;
+  banner?: FlashSaleBanner;
+  starts_at: string;
+  ends_at: string;
+  slots?: string[];
+  quota?: number;
+  sold_count?: number;
+  revenue?: number;
+  products?: {
+    id?: number;
+    name: string;
+    emoji?: string;
+    tone?: string;
+    price?: number;
+    original_price?: number;
+    slot_start?: string | null;
+    slot_end?: string | null;
+    slot?: string;
+  }[];
+};
+
+const BANNERS: FlashSaleBanner[] = ["88", "99", "mid", "end"];
+
+function normalizeFlashProduct(raw: unknown): FlashSaleProduct {
+  const row = asRecord(raw);
+  const statusRaw = String(row.status ?? "ended");
+  const status: FlashSaleStatus =
+    statusRaw === "running" || statusRaw === "upcoming" || statusRaw === "ended"
+      ? statusRaw
+      : "ended";
+  return {
+    id: row.id != null ? Number(row.id) : undefined,
+    name: String(row.name ?? ""),
+    emoji: String(row.emoji ?? "🍱"),
+    tone: String(row.tone ?? "from-amber-200 to-orange-300"),
+    image_url: row.image_url ? String(row.image_url) : null,
+    price: Number(row.price ?? 0),
+    original: Number(row.original ?? row.original_price ?? 0),
+    slot_start: row.slot_start ? String(row.slot_start) : null,
+    slot_end: row.slot_end ? String(row.slot_end) : null,
+    slot_label: String(row.slot_label ?? ""),
+    status,
+    remain_ms: Number(row.remain_ms ?? 0),
+    remain_until: row.remain_until ? String(row.remain_until) : null,
+  };
+}
+
+function normalizeFlashSale(raw: unknown): FlashSaleCampaign {
+  const row = asRecord(raw);
+  const bannerRaw = String(row.banner ?? "88");
+  const banner = (BANNERS as string[]).includes(bannerRaw)
+    ? (bannerRaw as FlashSaleBanner)
+    : "88";
+  const statusRaw = String(row.status ?? "ended");
+  const status: FlashSaleStatus =
+    statusRaw === "running" || statusRaw === "upcoming" || statusRaw === "ended"
+      ? statusRaw
+      : "ended";
+  const products = Array.isArray(row.products)
+    ? row.products.map(normalizeFlashProduct)
+    : [];
+
+  return {
+    id: Number(row.id),
+    title: String(row.title ?? ""),
+    branch_id: row.branch_id != null ? Number(row.branch_id) : null,
+    branch: String(row.branch ?? "Tất cả chi nhánh"),
+    banner,
+    status,
+    starts_at: row.starts_at ? String(row.starts_at) : null,
+    ends_at: row.ends_at ? String(row.ends_at) : null,
+    date_label: String(row.date_label ?? ""),
+    slots: Array.isArray(row.slots) ? row.slots.map((s) => String(s)) : [],
+    slots_label: String(row.slots_label ?? ""),
+    quota: Number(row.quota ?? 0),
+    sold: Number(row.sold ?? 0),
+    revenue: Number(row.revenue ?? 0),
+    progress: Number(row.progress ?? 0),
+    remain_ms: Number(row.remain_ms ?? 0),
+    remain_until: row.remain_until ? String(row.remain_until) : null,
+    active_product_id: row.active_product_id != null ? Number(row.active_product_id) : null,
+    active_product_name: row.active_product_name ? String(row.active_product_name) : null,
+    products,
+    extra_products: Number(row.extra_products ?? Math.max(0, products.length - 3)),
+  };
+}
+
+function emptyStats(): FlashSaleStats {
+  return {
+    total: 0,
+    running: 0,
+    upcoming: 0,
+    ended: 0,
+    upcoming_in_24h: 0,
+    created_this_month: 0,
+    created_last_month: 0,
+    month_delta: 0,
+  };
+}
+
+function normalizeFlashStats(raw: unknown): FlashSaleStats {
+  const row = asRecord(raw);
+  return {
+    total: Number(row.total ?? 0),
+    running: Number(row.running ?? 0),
+    upcoming: Number(row.upcoming ?? 0),
+    ended: Number(row.ended ?? 0),
+    upcoming_in_24h: Number(row.upcoming_in_24h ?? 0),
+    created_this_month: Number(row.created_this_month ?? 0),
+    created_last_month: Number(row.created_last_month ?? 0),
+    month_delta: Number(row.month_delta ?? 0),
+  };
+}
+
+export async function fetchFlashSales(
+  filters: FlashSaleFilters = {},
+  signal?: AbortSignal,
+): Promise<FlashSaleListResult> {
+  const params = new URLSearchParams();
+  if (filters.status && filters.status !== "all") {
+    params.set("status", filters.status);
+  }
+  if (filters.branch_id) params.set("branch_id", String(filters.branch_id));
+  if (filters.month) params.set("month", filters.month);
+  if (filters.search?.trim()) params.set("search", filters.search.trim());
+
+  const qs = params.toString();
+  const res = await authFetch(
+    `${apiUrl()}/marketing/flash-sales${qs ? `?${qs}` : ""}`,
+    { cache: "no-store", signal },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { stats?: unknown; data?: unknown[] };
+  return {
+    stats: normalizeFlashStats(json.stats),
+    data: Array.isArray(json.data) ? json.data.map(normalizeFlashSale) : [],
+  };
+}
+
+export async function fetchFlashSaleHistory(
+  signal?: AbortSignal,
+): Promise<FlashSaleCampaign[]> {
+  const res = await authFetch(`${apiUrl()}/marketing/flash-sales/history`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data?: unknown[] };
+  return Array.isArray(json.data) ? json.data.map(normalizeFlashSale) : [];
+}
+
+export async function createFlashSale(
+  payload: FlashSalePayload,
+): Promise<{ data: FlashSaleCampaign; message: string }> {
+  const res = await authFetch(`${apiUrl()}/marketing/flash-sales`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: unknown; message?: string };
+  return {
+    data: normalizeFlashSale(json.data),
+    message: json.message || "Đã tạo chương trình FlashSale.",
+  };
+}
+
+export async function updateFlashSale(
+  id: number,
+  payload: FlashSalePayload,
+): Promise<{ data: FlashSaleCampaign; message: string }> {
+  const res = await authFetch(`${apiUrl()}/marketing/flash-sales/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: unknown; message?: string };
+  return {
+    data: normalizeFlashSale(json.data),
+    message: json.message || "Đã cập nhật chương trình.",
+  };
+}
+
+export async function endFlashSale(
+  id: number,
+): Promise<{ data: FlashSaleCampaign; message: string }> {
+  const res = await authFetch(`${apiUrl()}/marketing/flash-sales/${id}/end`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: unknown; message?: string };
+  return {
+    data: normalizeFlashSale(json.data),
+    message: json.message || "Đã kết thúc chương trình.",
+  };
+}
+
+export async function deleteFlashSale(id: number): Promise<string> {
+  const res = await authFetch(`${apiUrl()}/marketing/flash-sales/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { message?: string };
+  return json.message || "Đã xoá chương trình.";
+}
+
+export async function uploadFlashSaleProductImage(
+  saleId: number,
+  productId: number,
+  file: File,
+): Promise<FlashSaleCampaign> {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await authFetch(
+    `${apiUrl()}/marketing/flash-sales/${saleId}/products/${productId}/image`,
+    { method: "POST", body: form },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: unknown };
+  return normalizeFlashSale(json.data);
+}
+
+export async function clearFlashSaleProductImage(
+  saleId: number,
+  productId: number,
+): Promise<FlashSaleCampaign> {
+  const res = await authFetch(
+    `${apiUrl()}/marketing/flash-sales/${saleId}/products/${productId}/image`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = (await res.json()) as { data: unknown };
+  return normalizeFlashSale(json.data);
+}
+
+export function emptyFlashSaleStats(): FlashSaleStats {
+  return emptyStats();
+}

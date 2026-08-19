@@ -36,6 +36,8 @@ export type LeaveFilters = {
   status?: string;
   type?: string;
   search?: string;
+  from?: string;
+  to?: string;
 };
 
 export const leaveTypeLabels: Record<LeaveType, string> = {
@@ -84,15 +86,19 @@ export function countLeaveDays(from: string, to: string): number {
 
 export async function fetchLeaves(
   filters: LeaveFilters = {},
+  signal?: AbortSignal,
 ): Promise<{ data: LeaveRequest[]; stats: LeaveStats }> {
   const q = new URLSearchParams();
   if (filters.status) q.set("status", filters.status);
   if (filters.type) q.set("type", filters.type);
   if (filters.search) q.set("search", filters.search);
+  if (filters.from) q.set("from", filters.from);
+  if (filters.to) q.set("to", filters.to);
   const suffix = q.toString() ? `?${q}` : "";
   const res = await fetch(`${apiUrl()}/leaves${suffix}`, {
     headers: authHeaders(false),
     cache: "no-store",
+    signal,
   });
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
@@ -148,4 +154,32 @@ export async function reviewLeave(
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
   return json.data as LeaveRequest;
+}
+
+export async function updateLeave(
+  id: number,
+  payload: {
+    type: LeaveType;
+    from: string;
+    to: string;
+    reason: string;
+    employee_id?: number;
+  },
+): Promise<LeaveRequest> {
+  const res = await fetch(`${apiUrl()}/leaves/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = await res.json();
+  return json.data as LeaveRequest;
+}
+
+export async function deleteLeave(id: number): Promise<void> {
+  const res = await fetch(`${apiUrl()}/leaves/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(false),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
 }

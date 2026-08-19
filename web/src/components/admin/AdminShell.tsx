@@ -12,6 +12,7 @@ import {
 import { usePathname } from "next/navigation";
 import { Header } from "@/components/dashboard/Header";
 import { Sidebar } from "@/components/dashboard/Sidebar";
+import { MobileAdminShell } from "@/components/admin/MobileAdminShell";
 import { PageLoadingSkeleton } from "@/components/ui/PageLoadingSkeleton";
 import {
   clearTokens,
@@ -188,13 +189,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <AdminShellContext.Provider value={value}>
-      <div className="flex min-h-screen bg-[#F3F4F6]">
-        <Sidebar tenant={value.shell.tenant} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header data={value.shell} />
-          {children}
-        </div>
-      </div>
+      <MobileAdminShell
+        data={value.shell}
+        onRefreshShell={value.refreshShell}
+        sidebar={<Sidebar tenant={value.shell.tenant} />}
+        header={<Header data={value.shell} />}
+      >
+        {children}
+      </MobileAdminShell>
     </AdminShellContext.Provider>
   );
 }

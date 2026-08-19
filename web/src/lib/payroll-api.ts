@@ -27,8 +27,11 @@ export type PayrollRow = {
 export type PayrollStats = {
   employees: number;
   fund: number;
+  net?: number;
   income: number;
   deductions: number;
+  paid_amount?: number;
+  remaining?: number;
   paid_percent: number;
   fund_delta: number;
   income_delta: number;

@@ -44,6 +44,9 @@ import {
 import { fetchShifts, type Shift } from "@/lib/shifts-api";
 import { nowInAppTz, todayIso } from "@/lib/timezone";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { fetchLeaves, type LeaveRequest } from "@/lib/leave-api";
+import { leavesByEmployeeDate, eachIsoDate } from "@/lib/schedule-leave";
+import { MobileSchedule } from "@/components/schedule/MobileSchedule";
 
 export default function SchedulePage() {
   return (
@@ -65,6 +68,7 @@ function SchedulePageClient() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<ScheduleAssignment[]>([]);
+  const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [catalogReady, setCatalogReady] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,19 +164,30 @@ function SchedulePageClient() {
     setRefreshing(true);
     setError(null);
     try {
-      const data = await fetchScheduleAssignments(
-        {
-          branch_id: branchId,
-          shift_id: shiftId,
-          employee_id: employeeId,
-          date_from: rangeFrom,
-          date_to: rangeTo,
-          status: "assigned",
-        },
-        controller.signal,
-      );
+      const [data, leaveRes] = await Promise.all([
+        fetchScheduleAssignments(
+          {
+            branch_id: branchId,
+            shift_id: shiftId,
+            employee_id: employeeId,
+            date_from: rangeFrom,
+            date_to: rangeTo,
+            status: "assigned",
+          },
+          controller.signal,
+        ),
+        fetchLeaves(
+          {
+            status: "approved",
+            from: rangeFrom,
+            to: rangeTo,
+          },
+          controller.signal,
+        ).catch(() => ({ data: [] as LeaveRequest[] })),
+      ]);
       if (requestId !== requestIdRef.current) return;
       setAssignments(data);
+      setLeaves(leaveRes.data ?? []);
       setAppliedDays(daysForRequest);
     } catch (err) {
       if (
@@ -246,6 +261,8 @@ function SchedulePageClient() {
     return list;
   }, [employees, branchId, employeeId, search]);
 
+  const leaveMap = useMemo(() => leavesByEmployeeDate(leaves), [leaves]);
+
   const rows: ScheduleRow[] = useMemo(() => {
     return filteredEmployees.map((employee) => {
       const byDate: Record<string, ScheduleAssignment[]> = {};
@@ -260,9 +277,14 @@ function SchedulePageClient() {
           minutes += minutesBetween(a.shift.start_time, a.shift.end_time);
         }
       }
-      return { employee, byDate, minutes };
+      return {
+        employee,
+        byDate,
+        leavesByDate: leaveMap[employee.id] ?? {},
+        minutes,
+      };
     });
-  }, [filteredEmployees, assignments, shiftId]);
+  }, [filteredEmployees, assignments, shiftId, leaveMap]);
 
   const monthVisibleAssignments = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -332,7 +354,8 @@ function SchedulePageClient() {
       let hasAny = false;
       for (const day of appliedDays) {
         const cells = row.byDate[day.iso] ?? [];
-        if (cells.length === 0) offDays += 1;
+        const onLeave = Boolean(row.leavesByDate[day.iso]);
+        if (cells.length === 0 && !onLeave) offDays += 1;
         else hasAny = true;
       }
       if (!hasAny) unscheduledEmployees += 1;
@@ -372,6 +395,7 @@ function SchedulePageClient() {
       .filter((row) => {
         for (const day of appliedDays) {
           if ((row.byDate[day.iso] ?? []).length > 0) return false;
+          if (row.leavesByDate[day.iso]) return false;
         }
         return true;
       })
@@ -486,13 +510,114 @@ function SchedulePageClient() {
     }
   }
 
+  const monthLeavesByDate = useMemo(() => {
+    const map: Record<string, { label: string; count: number; type: string }[]> = {};
+    for (const leave of leaves) {
+      if (leave.status !== "approved" || !leave.from || !leave.to) continue;
+      for (const iso of eachIsoDate(leave.from, leave.to)) {
+        if (!map[iso]) map[iso] = [];
+        const label = leave.type_label || "Nghỉ phép";
+        const existing = map[iso].find((item) => item.label === label);
+        if (existing) existing.count += 1;
+        else map[iso].push({ label, count: 1, type: leave.type });
+      }
+    }
+    return map;
+  }, [leaves]);
+
+  function openAssign(employee: Employee, dayIso: string) {
+    if (dayIso < todayIso()) {
+      showToast("Không xếp ca cho ngày trong quá khứ.");
+      return;
+    }
+    const leave = leaveMap[employee.id]?.[dayIso];
+    if (leave) {
+      showToast(`${employee.full_name} đang ${leave.label.toLowerCase()}.`);
+      return;
+    }
+    setAssignEmployee(employee);
+    setAssignDate(dayIso);
+    setAssignError(null);
+    setAssignOpen(true);
+  }
+
   const dayPanelAssignments = dayPanelDate
     ? (monthByDate[dayPanelDate] ?? [])
     : [];
 
   return (
     <>
-      <main className="flex-1 overflow-y-auto p-5 lg:p-6">
+      <div className="lg:hidden">
+        {error ? (
+          <div className="mx-4 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
+            {error}
+          </div>
+        ) : null}
+        <MobileSchedule
+          view={view}
+          onViewChange={handleViewChange}
+          rangeFrom={rangeFrom}
+          rangeTo={rangeTo}
+          rangeAnchor={anchor}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onToday={handleToday}
+          refreshing={refreshing}
+          branches={branches}
+          shifts={shifts}
+          employees={employees}
+          branchId={branchId}
+          shiftId={shiftId}
+          employeeId={employeeId}
+          onBranchChange={setBranchId}
+          onShiftChange={setShiftId}
+          onEmployeeChange={setEmployeeId}
+          weekDays={appliedDays}
+          rows={rows}
+          monthGrid={monthGrid}
+          monthByDate={monthByDate}
+          monthLeavesByDate={monthLeavesByDate}
+          selectedDate={dayPanelDate}
+          loading={!catalogReady && rows.length === 0}
+          onCellClick={openAssign}
+          onRemoveAssignment={(a) => setPendingRemove(a)}
+          onDayClick={(iso) => {
+            setDayPanelDate(iso);
+            setDayAdding(false);
+            setDayEmployeeId("");
+          }}
+          overview={overview}
+          emptyAlertLabel={
+            view === "month"
+              ? "Không có cảnh báo tháng này."
+              : "Không có cảnh báo tuần này."
+          }
+          onQuickAction={(action) => {
+            if (action === "print") {
+              window.print();
+              return;
+            }
+            if (action === "copy") {
+              if (view !== "week") {
+                showToast("Chuyển sang xem theo tuần để sao chép lịch.");
+                return;
+              }
+              setCopyWeekOpen(true);
+              return;
+            }
+            if (action === "bulk") {
+              setBulkOpen(true);
+              return;
+            }
+            showToast("Tính năng sẽ sớm có sẵn");
+          }}
+          onViewAlertDetail={(kind) => {
+            setAlertDetailKind(kind);
+          }}
+          assignments={assignments}
+        />
+      </div>
+      <main className="hidden flex-1 overflow-y-auto p-5 lg:block lg:p-6">
         <ScheduleToolbar
           view={view}
           onViewChange={handleViewChange}
@@ -531,16 +656,7 @@ function SchedulePageClient() {
                 legendShifts={shifts}
                 loading={!catalogReady && rows.length === 0}
                 refreshing={refreshing}
-                onCellClick={(employee, dayIso) => {
-                  if (dayIso < todayIso()) {
-                    showToast("Không xếp ca cho ngày trong quá khứ.");
-                    return;
-                  }
-                  setAssignEmployee(employee);
-                  setAssignDate(dayIso);
-                  setAssignError(null);
-                  setAssignOpen(true);
-                }}
+                onCellClick={openAssign}
                 onRemoveAssignment={(a) => setPendingRemove(a)}
               />
             ) : view === "list" ? (
@@ -606,6 +722,7 @@ function SchedulePageClient() {
               <ScheduleMonthGrid
                 days={monthGrid}
                 byDate={monthByDate}
+                leavesByDate={monthLeavesByDate}
                 selectedDate={dayPanelDate}
                 loading={!catalogReady}
                 refreshing={refreshing}
@@ -701,6 +818,11 @@ function SchedulePageClient() {
             }
             const employee = employees.find((e) => e.id === dayEmployeeId);
             if (!employee) return;
+            const leave = leaveMap[employee.id]?.[dayPanelDate];
+            if (leave) {
+              showToast(`${employee.full_name} đang ${leave.label.toLowerCase()}.`);
+              return;
+            }
             setAssignEmployee(employee);
             setAssignDate(dayPanelDate);
             setAssignError(null);
@@ -783,7 +905,7 @@ function SchedulePageClient() {
       />
 
       {toast ? (
-        <div className="fixed right-5 bottom-5 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+        <div className="fixed right-5 bottom-24 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg lg:bottom-5">
           {toast}
         </div>
       ) : null}

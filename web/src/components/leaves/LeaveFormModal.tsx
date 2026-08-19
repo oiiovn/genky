@@ -7,6 +7,8 @@ import {
   countLeaveDays,
   createLeave,
   leaveTypeLabels,
+  updateLeave,
+  type LeaveRequest,
   type LeaveType,
 } from "@/lib/leave-api";
 import { todayIso } from "@/lib/timezone";
@@ -14,11 +16,13 @@ import { todayIso } from "@/lib/timezone";
 export function LeaveFormModal({
   open,
   employees,
+  editing = null,
   onClose,
   onSaved,
 }: {
   open: boolean;
   employees: Employee[];
+  editing?: LeaveRequest | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -32,13 +36,13 @@ export function LeaveFormModal({
 
   useEffect(() => {
     if (!open) return;
-    setEmployeeId("");
-    setType("annual");
-    setFrom(todayIso());
-    setTo(todayIso());
-    setReason("");
+    setEmployeeId(editing?.employee_id ?? "");
+    setType((editing?.type as LeaveType) || "annual");
+    setFrom(editing?.from ?? todayIso());
+    setTo(editing?.to ?? todayIso());
+    setReason(editing?.reason ?? "");
     setError(null);
-  }, [open]);
+  }, [open, editing]);
 
   if (!open) return null;
 
@@ -59,18 +63,29 @@ export function LeaveFormModal({
     }
     setSaving(true);
     setError(null);
+    const payload = {
+      employee_id: employeeId,
+      type,
+      from,
+      to,
+      reason: reason.trim(),
+    };
     try {
-      await createLeave({
-        employee_id: employeeId,
-        type,
-        from,
-        to,
-        reason: reason.trim(),
-      });
+      if (editing) {
+        await updateLeave(editing.id, payload);
+      } else {
+        await createLeave(payload);
+      }
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Không tạo được đơn.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : editing
+            ? "Không cập nhật được đơn."
+            : "Không tạo được đơn.",
+      );
     } finally {
       setSaving(false);
     }
@@ -85,10 +100,12 @@ export function LeaveFormModal({
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-800">
-              Tạo đơn nghỉ phép
+              {editing ? "Sửa đơn nghỉ phép" : "Tạo đơn nghỉ phép"}
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Đơn tạo bởi chủ quán sẽ được duyệt ngay.
+              {editing
+                ? "Cập nhật loại nghỉ, thời gian hoặc lý do."
+                : "Đơn tạo bởi chủ quán sẽ được duyệt ngay."}
             </p>
           </div>
           <button
@@ -117,6 +134,12 @@ export function LeaveFormModal({
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
             >
               <option value="">Chọn nhân viên</option>
+              {editing &&
+              !employees.some((emp) => emp.id === editing.employee_id) ? (
+                <option value={editing.employee_id}>
+                  {editing.full_name} · {editing.employee_code}
+                </option>
+              ) : null}
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.id}>
                   {emp.full_name} · {emp.employee_code}
@@ -182,7 +205,11 @@ export function LeaveFormModal({
             disabled={saving}
             className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {saving ? "Đang lưu..." : "Tạo và duyệt"}
+            {saving
+              ? "Đang lưu..."
+              : editing
+                ? "Lưu thay đổi"
+                : "Tạo và duyệt"}
           </button>
         </div>
       </form>

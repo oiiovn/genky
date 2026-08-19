@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import { useAdminChrome } from "@/components/admin/AdminShell";
 import { AttendanceStatsCards } from "@/components/attendance/AttendanceStatsCards";
 import { AttendanceTable } from "@/components/attendance/AttendanceTable";
+import { MobileAttendance } from "@/components/attendance/MobileAttendance";
 import { AttendanceRecordModal } from "@/components/attendance/AttendanceRecordModal";
 import { QuickAttendanceModal } from "@/components/attendance/QuickAttendanceModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -188,7 +189,68 @@ export default function AttendancePage() {
 
   return (
     <>
-        <main className="flex-1 overflow-y-auto p-5 lg:p-6">
+      <div className="lg:hidden">
+        {error ? (
+          <div className="mx-3.5 mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-600">
+            {error}
+          </div>
+        ) : null}
+        <MobileAttendance
+          stats={stats}
+          shiftsToday={shiftsToday}
+          shifts={shifts}
+          rows={rows}
+          total={total}
+          page={page}
+          lastPage={lastPage}
+          loading={loading || listLoading}
+          branches={branches}
+          branchFilter={branchFilter}
+          shiftFilter={shiftFilter}
+          statusFilter={statusFilter}
+          onBranchChange={(id) => {
+            setBranchFilter(id);
+            void Promise.all([
+              loadList({ branch_id: id, page: 1 }),
+              loadSummary({ branch_id: id }),
+            ]);
+          }}
+          onShiftChange={(id) => {
+            setShiftFilter(id);
+            void loadList({ shift_id: id, page: 1 });
+          }}
+          onStatusChange={(v) => {
+            setStatusFilter(v);
+            void loadList({ status: v, page: 1 });
+          }}
+          onPageChange={(p) => {
+            void loadList({ page: p });
+          }}
+          onExport={() => {
+            void exportAttendances({
+              from: dateFrom,
+              to: dateTo,
+              branch_id: branchFilter,
+            }).catch((err) =>
+              setError(
+                err instanceof Error ? err.message : "Xuất file thất bại.",
+              ),
+            );
+          }}
+          onCheckIn={() => void openQuickAttendance()}
+          checkInLoading={modalLoading}
+          onView={(row) => setRecordModal({ mode: "view", row })}
+          onEdit={(row) => setRecordModal({ mode: "edit", row })}
+          onDelete={(row) => {
+            if (!row.id && !row.branch_id) {
+              setError("Nhân viên chưa được gắn chi nhánh để xoá dòng này.");
+              return;
+            }
+            setPendingDelete(row);
+          }}
+        />
+      </div>
+        <main className="hidden flex-1 overflow-y-auto p-5 lg:block lg:p-6">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold text-slate-800">Chấm công</h2>
@@ -392,7 +454,7 @@ export default function AttendancePage() {
       ) : null}
 
       {toast && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center lg:bottom-6">
           <span className="rounded-full bg-slate-900/85 px-4 py-2 text-sm text-white">
             {toast}
           </span>

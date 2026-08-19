@@ -21,8 +21,8 @@ class PublicReviewRewardService
         private readonly MarketingRewardCodeService $rewardCodes,
         private readonly MarketingRewardCodeSettingService $codeSettings,
         private readonly MarketingRewardService $rewards,
-    ) {
-    }
+    ) {}
+
     /**
      * Không trả mã quà ngay — chỉ tạo claim session + claim_token.
      *
@@ -116,7 +116,7 @@ class PublicReviewRewardService
                 $existing = $this->rewardCodes->findActiveByOrder($campaign, $normalized);
                 if ($existing) {
                     $this->assertRewardCodeClaimable($existing);
-                    $existing->loadMissing('reward');
+                    $existing = $this->rewardCodes->ensureRewardAttached($existing);
 
                     return $this->spinPayload($existing, alreadyIssued: true);
                 }
@@ -332,6 +332,7 @@ class PublicReviewRewardService
                     ->firstOrFail();
 
                 $this->assertRewardCodeClaimable($rewardCode);
+                $rewardCode = $this->rewardCodes->ensureRewardAttached($rewardCode);
 
                 $session->consumed_at = now();
                 $session->save();

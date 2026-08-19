@@ -3,11 +3,11 @@
 namespace App\Services\Marketing;
 
 use App\Models\MarketingCampaignReward;
+use App\Models\MarketingReview;
+use App\Models\MarketingReviewCampaign;
 use App\Models\MarketingReward;
 use App\Models\MarketingRewardCode;
 use App\Models\MarketingRewardCodeSetting;
-use App\Models\MarketingReview;
-use App\Models\MarketingReviewCampaign;
 use App\Support\Marketing\OrderCode;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -17,8 +17,7 @@ class MarketingRewardCodeService
 {
     public function __construct(
         private readonly MarketingRewardCodeSettingService $codeSettings,
-    ) {
-    }
+    ) {}
 
     public function issueForVerifiedReview(
         MarketingReview $review,
@@ -136,6 +135,35 @@ class MarketingRewardCodeService
             'issued_at' => optional($code->issued_at)?->toIso8601String(),
             'expires_at' => optional($code->expires_at)?->toIso8601String(),
         ];
+    }
+
+    public function ensureRewardAttached(MarketingRewardCode $code): MarketingRewardCode
+    {
+        $code->loadMissing('reward');
+
+        if ($code->reward_id && $code->reward) {
+            return $code;
+        }
+
+        if ($code->status !== MarketingRewardCode::STATUS_ISSUED) {
+            return $code;
+        }
+
+        /** @var MarketingReviewCampaign|null $campaign */
+        $campaign = MarketingReviewCampaign::query()
+            ->whereKey($code->campaign_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $campaign) {
+            return $code;
+        }
+
+        $reward = $this->pickReward($campaign);
+        $code->reward_id = $reward->id;
+        $code->save();
+
+        return $code->fresh('reward') ?? $code;
     }
 
     protected function assertRewardCaps(

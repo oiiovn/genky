@@ -45,8 +45,11 @@ const PayrollSidePanel = dynamic(
 const emptyStats: PayrollStats = {
   employees: 0,
   fund: 0,
+  net: 0,
   income: 0,
   deductions: 0,
+  paid_amount: 0,
+  remaining: 0,
   paid_percent: 0,
   fund_delta: 0,
   income_delta: 0,
@@ -66,7 +69,6 @@ export default function PayrollPage() {
   const [branchFilter, setBranchFilter] = useState<number | "">("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | PayrollStatus>("");
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
   const [lastPage, setLastPage] = useState(1);
@@ -179,7 +181,6 @@ export default function PayrollPage() {
     setYear(d.getFullYear());
     setMonth(d.getMonth() + 1);
     setPage(1);
-    setSelectedIds([]);
   }
 
   function openPay(employeeId?: number) {
@@ -275,7 +276,6 @@ export default function PayrollPage() {
                 page={page}
                 lastPage={lastPage}
                 perPage={perPage}
-                selectedIds={selectedIds}
                 loading={listLoading}
                 mainTab={mainTab}
                 search={search}
@@ -310,22 +310,6 @@ export default function PayrollPage() {
                 onStatusChange={(v) => {
                   setStatusFilter(v);
                   setPage(1);
-                }}
-                onToggleRow={(id) => {
-                  setSelectedIds((prev) =>
-                    prev.includes(id)
-                      ? prev.filter((x) => x !== id)
-                      : [...prev, id],
-                  );
-                }}
-                onToggleAll={() => {
-                  const ids = rows.map((r) => r.id);
-                  const allOn = ids.every((id) => selectedIds.includes(id));
-                  setSelectedIds((prev) =>
-                    allOn
-                      ? prev.filter((id) => !ids.includes(id))
-                      : Array.from(new Set([...prev, ...ids])),
-                  );
                 }}
                 onPageChange={setPage}
                 onPerPageChange={(n) => {

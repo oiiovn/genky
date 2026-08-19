@@ -23,6 +23,12 @@ class LeaveController extends Controller
                 'status' => $request->string('status')->toString() ?: null,
                 'type' => $request->string('type')->toString() ?: null,
                 'search' => $request->string('search')->toString() ?: null,
+                'from' => $request->string('from')->toString()
+                    ?: $request->string('date_from')->toString()
+                    ?: null,
+                'to' => $request->string('to')->toString()
+                    ?: $request->string('date_to')->toString()
+                    ?: null,
             ])
         );
     }
@@ -65,6 +71,26 @@ class LeaveController extends Controller
             'message' => $data['status'] === LeaveRequest::STATUS_APPROVED
                 ? 'Đã duyệt đơn nghỉ phép.'
                 : 'Đã từ chối đơn nghỉ phép.',
+        ]);
+    }
+
+    public function update(StoreLeaveRequest $request, int $leave): JsonResponse
+    {
+        $model = $this->leaves->findOrFail($leave);
+
+        return response()->json([
+            'data' => $this->leaves->update($model, $request->validated()),
+            'message' => 'Đã cập nhật đơn nghỉ phép.',
+        ]);
+    }
+
+    public function destroy(int $leave): JsonResponse
+    {
+        $model = $this->leaves->findOrFail($leave);
+        $this->leaves->delete($model);
+
+        return response()->json([
+            'message' => 'Đã xoá đơn nghỉ phép.',
         ]);
     }
 }

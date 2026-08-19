@@ -1,7 +1,8 @@
 "use client";
 
 import clsx from "clsx";
-import { Check, Search, X } from "lucide-react";
+import { Check, Pencil, Search, Trash2, X } from "lucide-react";
+import { EmployeeAvatar } from "@/components/ui/EmployeeAvatar";
 import {
   leaveStatusLabels,
   leaveTypeLabels,
@@ -24,13 +25,6 @@ function formatDate(iso: string | null | undefined): string {
   return `${d}/${m}/${y}`;
 }
 
-function initials(name: string | null | undefined): string {
-  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 export function LeaveTable({
   rows,
   search,
@@ -43,6 +37,8 @@ export function LeaveTable({
   onTypeChange,
   onApprove,
   onReject,
+  onEdit,
+  onDelete,
 }: {
   rows: LeaveRequest[];
   search: string;
@@ -55,6 +51,8 @@ export function LeaveTable({
   onTypeChange: (v: string) => void;
   onApprove: (row: LeaveRequest) => void;
   onReject: (row: LeaveRequest) => void;
+  onEdit: (row: LeaveRequest) => void;
+  onDelete: (row: LeaveRequest) => void;
 }) {
   const tabs: { id: string; label: string }[] = [
     { id: "", label: "Tất cả" },
@@ -139,9 +137,12 @@ export function LeaveTable({
                 <tr key={row.id} className="border-b border-slate-50 last:border-0">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-50 text-xs font-bold text-rose-500">
-                        {initials(row.full_name)}
-                      </div>
+                      <EmployeeAvatar
+                        avatar={row.avatar}
+                        name={row.full_name}
+                        code={row.employee_code}
+                        className="h-9 w-9 shrink-0 rounded-full"
+                      />
                       <div>
                         <p className="font-semibold text-slate-800">
                           {row.full_name ?? "—"}
@@ -183,30 +184,50 @@ export function LeaveTable({
                     ) : null}
                   </td>
                   <td className="px-4 py-3">
-                    {row.status === "pending" ? (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          disabled={busyId === row.id}
-                          onClick={() => onApprove(row)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 px-2.5 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                          Duyệt
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId === row.id}
-                          onClick={() => onReject(row)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-500 hover:bg-rose-50 disabled:opacity-50"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                          Từ chối
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="text-right text-xs text-slate-400">—</p>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {row.status === "pending" ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busyId === row.id}
+                            onClick={() => onApprove(row)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 px-2.5 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            Duyệt
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === row.id}
+                            onClick={() => onReject(row)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-500 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Từ chối
+                          </button>
+                        </>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={busyId === row.id}
+                        onClick={() => onEdit(row)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-500 disabled:opacity-50"
+                        aria-label="Sửa"
+                        title="Sửa đơn"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === row.id}
+                        onClick={() => onDelete(row)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                        aria-label="Xóa"
+                        title="Xóa đơn"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

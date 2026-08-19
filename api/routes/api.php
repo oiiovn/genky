@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\AccountSecurityController;
+use App\Http\Controllers\Api\ActivityLogController;
+use App\Http\Controllers\Api\AdjustmentController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AttendanceQrController;
 use App\Http\Controllers\Api\Auth\AuthController;
@@ -11,6 +13,17 @@ use App\Http\Controllers\Api\EmployeeInvitationController;
 use App\Http\Controllers\Api\FeatureController;
 use App\Http\Controllers\Api\GeneralSettingsController;
 use App\Http\Controllers\Api\InterfaceSettingsController;
+use App\Http\Controllers\Api\LeaveController;
+use App\Http\Controllers\Api\Marketing\MarketingChannelController;
+use App\Http\Controllers\Api\Marketing\MarketingFlashSaleController;
+use App\Http\Controllers\Api\Marketing\MarketingLandingController;
+use App\Http\Controllers\Api\Marketing\MarketingQrCodeController;
+use App\Http\Controllers\Api\Marketing\MarketingReviewCampaignController;
+use App\Http\Controllers\Api\Marketing\MarketingReviewController;
+use App\Http\Controllers\Api\Marketing\MarketingRewardCodeController;
+use App\Http\Controllers\Api\Marketing\MarketingRewardCodeSettingController;
+use App\Http\Controllers\Api\Marketing\MarketingRewardController;
+use App\Http\Controllers\Api\Marketing\PublicReviewRewardController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\PlanController;
@@ -20,19 +33,7 @@ use App\Http\Controllers\Api\ShiftAssignmentController;
 use App\Http\Controllers\Api\ShiftController;
 use App\Http\Controllers\Api\StaffProfileController;
 use App\Http\Controllers\Api\TimesheetController;
-use App\Http\Controllers\Api\LeaveController;
-use App\Http\Controllers\Api\AdjustmentController;
-use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\UserPreferencesController;
-use App\Http\Controllers\Api\Marketing\MarketingChannelController;
-use App\Http\Controllers\Api\Marketing\MarketingLandingController;
-use App\Http\Controllers\Api\Marketing\MarketingQrCodeController;
-use App\Http\Controllers\Api\Marketing\MarketingReviewCampaignController;
-use App\Http\Controllers\Api\Marketing\MarketingReviewController;
-use App\Http\Controllers\Api\Marketing\MarketingRewardCodeController;
-use App\Http\Controllers\Api\Marketing\MarketingRewardCodeSettingController;
-use App\Http\Controllers\Api\Marketing\MarketingRewardController;
-use App\Http\Controllers\Api\Marketing\PublicReviewRewardController;
 use App\Http\Middleware\LogActivity;
 use App\Http\Middleware\SetTenantFromUser;
 use Illuminate\Support\Facades\Route;
@@ -226,6 +227,9 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
 
     Route::get('leaves', [LeaveController::class, 'index']);
     Route::post('leaves', [LeaveController::class, 'store']);
+    Route::put('leaves/{leave}', [LeaveController::class, 'update']);
+    Route::patch('leaves/{leave}', [LeaveController::class, 'update']);
+    Route::delete('leaves/{leave}', [LeaveController::class, 'destroy']);
     Route::post('leaves/{leave}/cancel', [LeaveController::class, 'cancel']);
     Route::post('leaves/{leave}/review', [LeaveController::class, 'review']);
 
@@ -269,6 +273,17 @@ Route::middleware(['auth:sanctum', SetTenantFromUser::class, LogActivity::class]
     // Marketing — QR theo chi nhánh
     Route::get('marketing/qr-codes', [MarketingQrCodeController::class, 'index']);
     Route::post('marketing/qr-codes/ensure-branches', [MarketingQrCodeController::class, 'ensureBranches']);
+
+    Route::get('marketing/flash-sales', [MarketingFlashSaleController::class, 'index']);
+    Route::get('marketing/flash-sales/history', [MarketingFlashSaleController::class, 'history']);
+    Route::post('marketing/flash-sales', [MarketingFlashSaleController::class, 'store']);
+    Route::get('marketing/flash-sales/{id}', [MarketingFlashSaleController::class, 'show']);
+    Route::put('marketing/flash-sales/{id}', [MarketingFlashSaleController::class, 'update']);
+    Route::patch('marketing/flash-sales/{id}', [MarketingFlashSaleController::class, 'update']);
+    Route::post('marketing/flash-sales/{id}/end', [MarketingFlashSaleController::class, 'end']);
+    Route::post('marketing/flash-sales/{id}/products/{productId}/image', [MarketingFlashSaleController::class, 'uploadProductImage']);
+    Route::delete('marketing/flash-sales/{id}/products/{productId}/image', [MarketingFlashSaleController::class, 'clearProductImage']);
+    Route::delete('marketing/flash-sales/{id}', [MarketingFlashSaleController::class, 'destroy']);
 
     // Marketing — Tăng đánh giá (admin API)
     Route::get('marketing/reviews/overview', [MarketingReviewController::class, 'overview']);

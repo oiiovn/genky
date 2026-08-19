@@ -17,23 +17,25 @@ import {
   QrCode,
   Settings,
   Star,
-  Users,
-  Wallet,
   Timer,
   TrendingUp,
   Umbrella,
+  Users,
+  Wallet,
+  Zap,
 } from "lucide-react";
 import { useAppearance } from "@/components/appearance/AppearanceProvider";
 import { CompanyBrand } from "@/components/dashboard/CompanyBrand";
 import type { ShellData } from "@/types/dashboard";
 
-type NavItemConfig = {
+export type NavItemConfig = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   href: string;
+  badge?: string;
 };
 
-type NavGroup = {
+export type NavGroup = {
   id: string;
   title: string;
   collapsible: boolean;
@@ -41,7 +43,7 @@ type NavGroup = {
   items: NavItemConfig[];
 };
 
-const NAV_GROUPS: NavGroup[] = [
+export const NAV_GROUPS: NavGroup[] = [
   {
     id: "hr",
     title: "Quản lý nhân sự",
@@ -66,6 +68,7 @@ const NAV_GROUPS: NavGroup[] = [
     collapsible: true,
     icon: Megaphone,
     items: [
+      { label: "FlashSale", icon: Zap, href: "/marketing/flashsale", badge: "NEW" },
       { label: "Tăng đánh giá", icon: Star, href: "/marketing/reviews" },
     ],
   },
@@ -87,7 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function activeFromPathname(pathname: string, fallback?: string): string {
+export function activeFromPathname(pathname: string, fallback?: string): string {
   const items = NAV_GROUPS.flatMap((group) => group.items).filter(
     (item) => item.href !== "#",
   );
@@ -155,12 +158,14 @@ function NavItem({
   label,
   icon: Icon,
   href,
+  badge,
   active,
   collapsed,
 }: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   href: string;
+  badge?: string;
   active?: boolean;
   collapsed?: boolean;
 }) {
@@ -174,10 +179,24 @@ function NavItem({
 
   const content = (
     <>
-      <Icon
-        className={clsx("h-4 w-4", active ? "text-white" : "text-slate-400")}
-      />
-      {collapsed ? null : <span>{label}</span>}
+      <span className="relative">
+        <Icon
+          className={clsx("h-4 w-4", active ? "text-white" : "text-slate-400")}
+        />
+        {collapsed && badge ? (
+          <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-orange-500" />
+        ) : null}
+      </span>
+      {collapsed ? null : (
+        <>
+          <span className="flex-1 text-left">{label}</span>
+          {badge ? (
+            <span className="rounded-md bg-orange-500 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-white">
+              {badge}
+            </span>
+          ) : null}
+        </>
+      )}
     </>
   );
 

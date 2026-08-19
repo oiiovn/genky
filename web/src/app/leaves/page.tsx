@@ -5,8 +5,10 @@ import { Plus } from "lucide-react";
 import { LeaveFormModal } from "@/components/leaves/LeaveFormModal";
 import { LeaveStatsCards } from "@/components/leaves/LeaveStatsCards";
 import { LeaveTable } from "@/components/leaves/LeaveTable";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { fetchEmployees, type Employee } from "@/lib/employees-api";
 import {
+  deleteLeave,
   fetchLeaves,
   reviewLeave,
   type LeaveRequest,
@@ -32,6 +34,8 @@ export default function LeavesPage() {
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<LeaveRequest | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<LeaveRequest | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const loadList = useCallback(async () => {
@@ -89,6 +93,21 @@ export default function LeavesPage() {
     }
   }
 
+  async function handleDelete() {
+    if (!pendingDelete) return;
+    setBusyId(pendingDelete.id);
+    setError(null);
+    try {
+      await deleteLeave(pendingDelete.id);
+      setPendingDelete(null);
+      await loadList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không xoá được đơn.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <>
         <main className="flex-1 space-y-5 overflow-y-auto p-5 lg:p-6">
@@ -101,7 +120,10 @@ export default function LeavesPage() {
             </div>
             <button
               type="button"
-              onClick={() => setModalOpen(true)}
+              onClick={() => {
+                setEditing(null);
+                setModalOpen(true);
+              }}
               className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600"
             >
               <Plus className="h-4 w-4" />
@@ -129,15 +151,37 @@ export default function LeavesPage() {
             onTypeChange={setType}
             onApprove={(row) => void review(row.id, "approved")}
             onReject={(row) => void review(row.id, "rejected")}
+            onEdit={(row) => {
+              setEditing(row);
+              setModalOpen(true);
+            }}
+            onDelete={setPendingDelete}
           />
         </main>
 
       <LeaveFormModal
         open={modalOpen}
         employees={employees}
-        onClose={() => setModalOpen(false)}
+        editing={editing}
+        onClose={() => {
+          setModalOpen(false);
+          setEditing(null);
+        }}
         onSaved={() => void loadList()}
       />
+
+      {pendingDelete ? (
+        <ConfirmDialog
+          open
+          title="Xóa đơn nghỉ phép"
+          message={`Xóa đơn của ${pendingDelete.full_name ?? "nhân viên"} (${pendingDelete.from} → ${pendingDelete.to})? Hành động này không hoàn tác.`}
+          loading={busyId === pendingDelete.id}
+          onClose={() => {
+            if (busyId === null) setPendingDelete(null);
+          }}
+          onConfirm={() => void handleDelete()}
+        />
+      ) : null}
     </>
   );
 }

@@ -43,12 +43,18 @@ class LeaveService
         $status = trim((string) ($filters['status'] ?? ''));
         $type = trim((string) ($filters['type'] ?? ''));
         $search = trim((string) ($filters['search'] ?? ''));
+        $from = trim((string) ($filters['from'] ?? $filters['date_from'] ?? ''));
+        $to = trim((string) ($filters['to'] ?? $filters['date_to'] ?? ''));
 
         if ($status !== '') {
             $query->where('status', $status);
         }
         if ($type !== '') {
             $query->where('type', $type);
+        }
+        if ($from !== '' && $to !== '') {
+            $query->whereDate('starts_on', '<=', $to)
+                ->whereDate('ends_on', '>=', $from);
         }
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
@@ -217,6 +223,77 @@ class LeaveService
         });
 
         return $this->payload($leave->fresh(['employee']));
+    }
+
+    public function update(LeaveRequest $leave, array $data): array
+    {
+        LeavePermission::for()->assertCanReview();
+
+        $starts = Carbon::parse($data['from'])->startOfDay();
+        $ends = Carbon::parse($data['to'])->startOfDay();
+
+        if ($ends->lt($starts)) {
+            throw ValidationException::withMessages([
+                'to' => ['Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.'],
+            ]);
+        }
+
+        $employeeId = (int) ($data['employee_id'] ?? $leave->employee_id);
+        $employee = Employee::query()->find($employeeId);
+        if (! $employee) {
+            throw ValidationException::withMessages([
+                'employee_id' => ['Không tìm thấy nhân viên.'],
+            ]);
+        }
+
+        $days = (int) $starts->diffInDays($ends) + 1;
+        $this->assertNoOverlap($employeeId, $starts, $ends, (int) $leave->id);
+        $wasApproved = $leave->status === LeaveRequest::STATUS_APPROVED;
+
+        $leave = DB::transaction(function () use ($leave, $data, $employee, $starts, $ends, $days, $wasApproved) {
+            if ($wasApproved) {
+                $this->clearAttendanceForLeave($leave);
+            }
+
+            $leave->forceFill([
+                'employee_id' => $employee->id,
+                'type' => $data['type'],
+                'starts_on' => $starts->toDateString(),
+                'ends_on' => $ends->toDateString(),
+                'days' => $days,
+                'reason' => trim((string) $data['reason']),
+            ])->save();
+
+            $leave->refresh();
+
+            if ($leave->status === LeaveRequest::STATUS_APPROVED) {
+                $this->cancelAssignmentsInLeaveRange($leave);
+                $this->applyToAttendance($leave);
+            }
+
+            return $leave;
+        });
+
+        return $this->payload($leave->fresh(['employee', 'reviewer']));
+    }
+
+    public function delete(LeaveRequest $leave): void
+    {
+        LeavePermission::for()->assertCanReview();
+
+        DB::transaction(function () use ($leave) {
+            $this->clearAttendanceForLeave($leave);
+            $leave->delete();
+        });
+    }
+
+    protected function clearAttendanceForLeave(LeaveRequest $leave): void
+    {
+        AttendanceLog::query()
+            ->where('leave_request_id', $leave->id)
+            ->where('status', AttendanceLog::STATUS_LEAVE)
+            ->whereNull('check_in_at')
+            ->delete();
     }
 
     protected function assertNoOverlap(int $employeeId, Carbon $starts, Carbon $ends, ?int $ignoreId = null): void

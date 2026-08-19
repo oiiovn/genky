@@ -9,6 +9,7 @@ use App\Models\Shift;
 use App\Models\ShiftAssignment;
 use App\Services\Attendance\AttendanceService;
 use App\Services\Leave\LeaveService;
+use App\Services\Payroll\PayrollService;
 use App\Support\Tenancy\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ class DashboardController extends Controller
     public function __construct(
         private readonly AttendanceService $attendance,
         private readonly LeaveService $leaves,
+        private readonly PayrollService $payroll,
     ) {
     }
 
@@ -60,6 +62,10 @@ class DashboardController extends Controller
             ->count();
 
         $attendance = $this->safeAttendanceSnapshot($today, $branchId);
+        $yesterday = $this->safeAttendanceSnapshot(
+            Carbon::parse($today, 'Asia/Ho_Chi_Minh')->subDay()->toDateString(),
+            $branchId,
+        );
         $notifications = $this->buildNotifications(
             $totalEmployees,
             $attendance,
@@ -76,10 +82,10 @@ class DashboardController extends Controller
                 fn ($n) => ($n['unread'] ?? false) === true,
             )),
             'notifications' => $notifications,
-            'kpis' => $this->buildKpis($totalEmployees, $attendance),
+            'kpis' => $this->buildKpis($totalEmployees, $attendance, $yesterday),
             'attendance_today' => $attendance['rows'],
-            'salary_projection' => $this->salaryProjection($now, $totalEmployees),
-            'personnel_costs' => $this->mockPersonnelCosts($now),
+            'salary_projection' => $this->salaryProjection($now, $totalEmployees, $branchId),
+            'personnel_costs' => $this->personnelCosts($now, $branchId),
             'performance' => $this->buildPerformance($attendance),
             'upcoming_shifts' => $this->upcomingShifts($today, $branchId),
         ]);
@@ -178,7 +184,18 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return array{rows: list<array<string, mixed>>, working: int, not_checked_in: int, late: int, absent: int, on_leave: int, ontime: int}
+     * @return array{
+     *   rows: list<array<string, mixed>>,
+     *   working: int,
+     *   not_checked_in: int,
+     *   late: int,
+     *   absent: int,
+     *   on_leave: int,
+     *   ontime: int,
+     *   checked_out: int,
+     *   overtime: int,
+     *   roster: int
+     * }
      */
     protected function safeAttendanceSnapshot(string $date, ?int $branchId = null): array
     {
@@ -190,33 +207,14 @@ class DashboardController extends Controller
             'absent' => 0,
             'on_leave' => 0,
             'ontime' => 0,
+            'checked_out' => 0,
+            'overtime' => 0,
+            'roster' => 0,
         ];
 
         try {
-            $filters = [
-                'date' => $date,
-                'per_page' => 50,
-                'page' => 1,
-            ];
-            if ($branchId) {
-                $filters['branch_id'] = $branchId;
-            }
-
-            $paginator = $this->attendance->list($filters);
-
-            $source = collect($paginator->items());
-            $working = $source->where('ui_status', 'working')->count();
-            $notCheckedIn = $source->where('ui_status', 'not_checked_in')->count();
-            $late = $source->where('check_in_tone', 'late')->count();
-            $ontime = $source->filter(
-                fn ($r) => in_array($r['check_in_tone'] ?? '', ['early', 'ontime'], true)
-            )->count();
-            $absent = $source->filter(
-                fn ($r) => ($r['ui_status'] ?? '') === 'absent'
-            )->count();
-            $onLeave = $source->filter(
-                fn ($r) => ($r['ui_status'] ?? '') === 'on_leave'
-            )->count();
+            $overview = $this->attendance->overviewForDate($date, $branchId);
+            $source = $overview['rows'];
 
             $rows = $source->take(8)->map(function (array $row) {
                 $status = 'pending';
@@ -245,7 +243,10 @@ class DashboardController extends Controller
                     'role' => $row['position'] ?? '—',
                     'avatar' => $row['avatar']
                         ?: null,
-                    'shift' => $row['shift_time'] ?? '—',
+                    'shift' => ($row['shift_name'] ?? '') !== '' && ($row['shift_name'] ?? '') !== '—'
+                        ? $row['shift_name']
+                        : ($row['shift_time'] ?? '—'),
+                    'shift_time' => $row['shift_time'] ?? '—',
                     'check_in' => $row['check_in'],
                     'status' => $status,
                     'status_label' => $statusLabel,
@@ -254,12 +255,15 @@ class DashboardController extends Controller
 
             return [
                 'rows' => $rows,
-                'working' => $working,
-                'not_checked_in' => $notCheckedIn,
-                'late' => $late,
-                'absent' => $absent,
-                'on_leave' => $onLeave,
-                'ontime' => $ontime,
+                'working' => (int) ($overview['working'] ?? 0),
+                'not_checked_in' => (int) ($overview['not_checked_in'] ?? 0),
+                'late' => (int) ($overview['late'] ?? 0),
+                'absent' => (int) ($overview['absent'] ?? 0),
+                'on_leave' => (int) ($overview['on_leave'] ?? 0),
+                'ontime' => (int) ($overview['ontime'] ?? 0),
+                'checked_out' => (int) ($overview['checked_out'] ?? 0),
+                'overtime' => (int) ($overview['overtime'] ?? 0),
+                'roster' => (int) ($overview['total'] ?? 0),
             ];
         } catch (Throwable) {
             return $empty;
@@ -268,9 +272,10 @@ class DashboardController extends Controller
 
     /**
      * @param  array{working: int, not_checked_in: int, late: int, absent: int}  $attendance
+     * @param  array{working: int, not_checked_in: int, late: int, absent: int}  $yesterday
      * @return list<array<string, mixed>>
      */
-    protected function buildKpis(int $totalEmployees, array $attendance): array
+    protected function buildKpis(int $totalEmployees, array $attendance, array $yesterday = []): array
     {
         $pct = static function (int $value) use ($totalEmployees): ?float {
             if ($totalEmployees <= 0) {
@@ -287,6 +292,7 @@ class DashboardController extends Controller
                 'value' => $totalEmployees,
                 'percent' => null,
                 'color' => 'blue',
+                'trend' => null,
             ],
             [
                 'key' => 'working',
@@ -294,6 +300,11 @@ class DashboardController extends Controller
                 'value' => $attendance['working'],
                 'percent' => $pct($attendance['working']),
                 'color' => 'green',
+                'trend' => $this->kpiTrend(
+                    $attendance['working'],
+                    (int) ($yesterday['working'] ?? 0),
+                    'so với hôm qua',
+                ),
             ],
             [
                 'key' => 'not_checked_in',
@@ -301,6 +312,11 @@ class DashboardController extends Controller
                 'value' => $attendance['not_checked_in'],
                 'percent' => $pct($attendance['not_checked_in']),
                 'color' => 'orange',
+                'trend' => $this->kpiTrend(
+                    $attendance['not_checked_in'],
+                    (int) ($yesterday['not_checked_in'] ?? 0),
+                    'so với hôm qua',
+                ),
             ],
             [
                 'key' => 'late',
@@ -308,6 +324,11 @@ class DashboardController extends Controller
                 'value' => $attendance['late'],
                 'percent' => $pct($attendance['late']),
                 'color' => 'red',
+                'trend' => $this->kpiTrend(
+                    $attendance['late'],
+                    (int) ($yesterday['late'] ?? 0),
+                    'so với hôm qua',
+                ),
             ],
             [
                 'key' => 'absent',
@@ -315,7 +336,42 @@ class DashboardController extends Controller
                 'value' => $attendance['absent'],
                 'percent' => $pct($attendance['absent']),
                 'color' => 'sky',
+                'trend' => $this->kpiTrend(
+                    $attendance['absent'],
+                    (int) ($yesterday['absent'] ?? 0),
+                    'so với hôm qua',
+                ),
             ],
+        ];
+    }
+
+    /**
+     * @return array{value: float, dir: 'up'|'down'|'flat', label: string}|null
+     */
+    protected function kpiTrend(int $current, int $previous, string $label): ?array
+    {
+        if ($previous === 0 && $current === 0) {
+            return [
+                'value' => 0,
+                'dir' => 'flat',
+                'label' => $label,
+            ];
+        }
+
+        if ($previous === 0) {
+            return [
+                'value' => 100,
+                'dir' => 'up',
+                'label' => $label,
+            ];
+        }
+
+        $pct = round((($current - $previous) / $previous) * 100, 0);
+
+        return [
+            'value' => abs($pct),
+            'dir' => $pct > 0 ? 'up' : ($pct < 0 ? 'down' : 'flat'),
+            'label' => $label,
         ];
     }
 
@@ -390,21 +446,47 @@ class DashboardController extends Controller
     }
 
     /**
-     * @param  array{working: int, not_checked_in: int, late: int, ontime: int}  $attendance
+     * @param  array{
+     *   working: int,
+     *   not_checked_in: int,
+     *   late: int,
+     *   ontime: int,
+     *   on_leave: int,
+     *   checked_out: int,
+     *   overtime: int,
+     *   roster: int
+     * }  $attendance
      */
     protected function buildPerformance(array $attendance): array
     {
-        $checked = max(1, $attendance['working'] + $attendance['ontime'] + $attendance['late']);
-        $ontimePct = (int) round(($attendance['ontime'] / $checked) * 100);
-        $completePct = (int) round((($attendance['working'] + $attendance['ontime'] + $attendance['late']) / max(1, $attendance['working'] + $attendance['not_checked_in'] + $attendance['late'] + $attendance['ontime'])) * 100);
+        $roster = max(0, (int) ($attendance['roster'] ?? 0));
+        $onLeave = (int) ($attendance['on_leave'] ?? 0);
+        $ontime = (int) ($attendance['ontime'] ?? 0);
+        $present = (int) ($attendance['working'] ?? 0) + (int) ($attendance['checked_out'] ?? 0);
+        $checkedOut = (int) ($attendance['checked_out'] ?? 0);
+        $overtime = (int) ($attendance['overtime'] ?? 0);
+        $expectedWork = max(0, $roster - $onLeave);
+
+        $pct = static function (int $value, int $base): int {
+            if ($base <= 0) {
+                return 0;
+            }
+
+            return (int) round(($value / $base) * 100);
+        };
+
+        $ontimePct = $pct($ontime, $present);
+        $completePct = $pct($checkedOut, $expectedWork);
+        $overtimePct = $pct($overtime, $present);
+        $leavePct = $pct($onLeave, $roster);
 
         return [
             'overall' => $ontimePct,
             'metrics' => [
                 ['label' => 'Đúng giờ', 'value' => $ontimePct, 'color' => '#22C55E'],
                 ['label' => 'Hoàn thành ca', 'value' => $completePct, 'color' => '#6366F1'],
-                ['label' => 'Làm thêm', 'value' => 0, 'color' => '#F59E0B'],
-                ['label' => 'Nghỉ phép', 'value' => 0, 'color' => '#EF4444'],
+                ['label' => 'Làm thêm', 'value' => $overtimePct, 'color' => '#F59E0B'],
+                ['label' => 'Nghỉ phép', 'value' => $leavePct, 'color' => '#EF4444'],
             ],
         ];
     }
@@ -437,12 +519,22 @@ class DashboardController extends Controller
                 }
 
                 $date = Carbon::parse($first->date);
+                $tz = 'Asia/Ho_Chi_Minh';
+                $now = Carbon::now($tz);
+                $start = Carbon::parse($date->toDateString().' '.substr((string) $shift->start_time, 0, 5), $tz);
+                $end = Carbon::parse($date->toDateString().' '.substr((string) $shift->end_time, 0, 5), $tz);
+                if ($end->lte($start)) {
+                    $end->addDay();
+                }
+
                 $items[] = [
                     'date' => $date->format('d'),
                     'month' => 'Th'.$date->format('m'),
                     'name' => $shift->name,
                     'time' => substr((string) $shift->start_time, 0, 5).' - '.substr((string) $shift->end_time, 0, 5),
                     'employees' => $group->count(),
+                    'when' => $this->shiftWhenLabel($date),
+                    'remaining' => $this->shiftRemainingLabel($now, $start, $end),
                 ];
 
                 if (count($items) >= 5) {
@@ -462,12 +554,22 @@ class DashboardController extends Controller
                 ->limit(3)
                 ->get()
                 ->map(function (Shift $shift) use ($from) {
+                    $tz = 'Asia/Ho_Chi_Minh';
+                    $now = Carbon::now($tz);
+                    $start = Carbon::parse($from->toDateString().' '.substr((string) $shift->start_time, 0, 5), $tz);
+                    $end = Carbon::parse($from->toDateString().' '.substr((string) $shift->end_time, 0, 5), $tz);
+                    if ($end->lte($start)) {
+                        $end->addDay();
+                    }
+
                     return [
                         'date' => $from->format('d'),
                         'month' => 'Th'.$from->format('m'),
                         'name' => $shift->name,
                         'time' => substr((string) $shift->start_time, 0, 5).' - '.substr((string) $shift->end_time, 0, 5),
                         'employees' => 0,
+                        'when' => $this->shiftWhenLabel($from),
+                        'remaining' => $this->shiftRemainingLabel($now, $start, $end),
                     ];
                 })
                 ->all();
@@ -476,33 +578,80 @@ class DashboardController extends Controller
         }
     }
 
-    protected function salaryProjection(Carbon $now, int $employees): array
+    protected function shiftWhenLabel(Carbon $date): string
     {
-        return [
-            'month' => $now->format('m/Y'),
-            'total' => 0,
-            'total_formatted' => '0 đ',
-            'growth' => 0,
-            'employees' => $employees,
-            'breakdown' => [
-                ['label' => 'Lương cơ bản', 'value' => 0, 'color' => '#6366F1'],
-                ['label' => 'Làm thêm giờ', 'value' => 0, 'color' => '#22C55E'],
-                ['label' => 'Thưởng', 'value' => 0, 'color' => '#F59E0B'],
-                ['label' => 'Phạt', 'value' => 0, 'color' => '#EF4444'],
-                ['label' => 'Khác', 'value' => 0, 'color' => '#94A3B8'],
-            ],
-        ];
+        $day = $date->copy()->timezone('Asia/Ho_Chi_Minh')->startOfDay();
+        $today = Carbon::now('Asia/Ho_Chi_Minh')->startOfDay();
+
+        if ($day->equalTo($today)) {
+            return 'Hôm nay';
+        }
+        if ($day->equalTo($today->copy()->addDay())) {
+            return 'Ngày mai';
+        }
+
+        return $day->format('d/m');
     }
 
-    protected function mockPersonnelCosts(Carbon $now): array
+    protected function shiftRemainingLabel(Carbon $now, Carbon $start, Carbon $end): string
     {
-        return [
-            'month' => $now->format('m/Y'),
-            'total' => 0,
-            'growth' => 0,
-            'days' => collect(range(1, min(15, $now->daysInMonth)))
-                ->map(fn ($day) => ['day' => $day, 'value' => 0])
-                ->all(),
-        ];
+        if ($now->lt($start)) {
+            $mins = (int) $now->diffInMinutes($start);
+            $hours = intdiv($mins, 60);
+            if ($hours > 0) {
+                return 'Còn '.$hours.' giờ';
+            }
+
+            return 'Còn '.$mins.' phút';
+        }
+
+        if ($now->lte($end)) {
+            return 'Đang diễn ra';
+        }
+
+        return 'Đã kết thúc';
+    }
+
+    protected function salaryProjection(Carbon $now, int $employees, ?int $branchId = null): array
+    {
+        try {
+            return $this->payroll->salaryProjection((int) $now->year, (int) $now->month, $branchId);
+        } catch (Throwable) {
+            return [
+                'month' => $now->format('m/Y'),
+                'total' => 0,
+                'total_formatted' => '0 đ',
+                'growth' => 0,
+                'employees' => $employees,
+                'basic_salary' => 0,
+                'overtime' => 0,
+                'bonus' => 0,
+                'fine' => 0,
+                'others' => 0,
+                'breakdown' => [
+                    ['label' => 'Lương cơ bản', 'value' => 0, 'color' => '#8B5CF6'],
+                    ['label' => 'Làm thêm giờ', 'value' => 0, 'color' => '#22C55E'],
+                    ['label' => 'Thưởng', 'value' => 0, 'color' => '#F59E0B'],
+                    ['label' => 'Phạt', 'value' => 0, 'color' => '#EF4444'],
+                    ['label' => 'Khác', 'value' => 0, 'color' => '#94A3B8'],
+                ],
+            ];
+        }
+    }
+
+    protected function personnelCosts(Carbon $now, ?int $branchId = null): array
+    {
+        try {
+            return $this->payroll->personnelCosts((int) $now->year, (int) $now->month, $branchId);
+        } catch (Throwable) {
+            return [
+                'month' => $now->format('m/Y'),
+                'total' => 0,
+                'growth' => 0,
+                'days' => collect(range(1, $now->daysInMonth))
+                    ->map(fn ($day) => ['day' => $day, 'value' => 0])
+                    ->all(),
+            ];
+        }
     }
 }

@@ -9,17 +9,25 @@ use Carbon\Carbon;
 
 class DailyWage
 {
-    public static function payableMinutes(AttendanceLog $log, ?Shift $shift, bool $payFromShiftStart): int
-    {
-        if (! $log->check_in_at || ! $log->check_out_at) {
+    public static function payableMinutes(
+        AttendanceLog $log,
+        ?Shift $shift,
+        bool $payFromShiftStart,
+        ?Carbon $until = null,
+    ): int {
+        $checkOut = $until ?? $log->check_out_at;
+        if (! $log->check_in_at || ! $checkOut) {
             return 0;
         }
 
         $actual = $log->total_minutes;
-        if ($actual === null) {
-            $actual = max(0, $log->check_in_at->diffInMinutes($log->check_out_at) - (int) $log->break_minutes);
+        if ($actual === null || $until) {
+            $actual = max(0, (int) round($log->check_in_at->diffInMinutes($checkOut)) - (int) $log->break_minutes);
         }
         $actual = (int) $actual;
+        if ($actual < 0) {
+            $actual = 0;
+        }
 
         if (! $payFromShiftStart || ! $shift) {
             return $actual;
@@ -31,13 +39,13 @@ class DailyWage
         $time = substr((string) $shift->start_time, 0, 5);
         $shiftStart = Carbon::parse($date.' '.$time, $tz);
         $checkIn = $log->check_in_at->copy()->timezone($tz);
-        $checkOut = $log->check_out_at->copy()->timezone($tz);
+        $end = $checkOut->copy()->timezone($tz);
         $start = $checkIn->lt($shiftStart) ? $shiftStart : $checkIn;
-        if ($start->gte($checkOut)) {
+        if ($start->gte($end)) {
             return 0;
         }
 
-        return max(0, $start->diffInMinutes($checkOut) - (int) $log->break_minutes);
+        return max(0, (int) round($start->diffInMinutes($end)) - (int) $log->break_minutes);
     }
 
     public static function amount(Employee $employee, int $minutes): int

@@ -12,12 +12,32 @@ import {
   shiftChipStyle,
   type WeekDay,
 } from "@/lib/schedule-utils";
+import {
+  leaveChipStyle,
+  type ScheduleLeaveCell,
+} from "@/lib/schedule-leave";
 
 export type ScheduleRow = {
   employee: Employee;
   byDate: Record<string, ScheduleAssignment[]>;
+  leavesByDate: Record<string, ScheduleLeaveCell>;
   minutes: number;
 };
+
+function LeaveChip({ leave }: { leave: ScheduleLeaveCell }) {
+  const style = leaveChipStyle(leave.type);
+  return (
+    <div
+      className="w-full rounded-lg border px-2 py-1.5 text-left"
+      style={style}
+    >
+      <p className="truncate text-[11px] font-semibold leading-tight">
+        {leave.label}
+      </p>
+      <p className="mt-0.5 text-[10px] opacity-80">Nghỉ phép</p>
+    </div>
+  );
+}
 
 function ShiftChip({
   assignment,
@@ -182,6 +202,7 @@ export function ScheduleWeekGrid({
                     </td>
                     {days.map((day) => {
                       const cells = row.byDate[day.iso] ?? [];
+                      const leave = row.leavesByDate[day.iso];
                       return (
                         <td key={day.iso} className="px-1.5 py-2 align-top">
                           <button
@@ -191,12 +212,14 @@ export function ScheduleWeekGrid({
                             }
                             className={clsx(
                               "flex min-h-[72px] w-full flex-col gap-1 rounded-xl border border-dashed p-1.5 text-left transition",
-                              cells.length
+                              cells.length || leave
                                 ? "border-transparent hover:bg-slate-50"
                                 : "border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40",
                             )}
                           >
-                            {cells.length === 0 ? (
+                            {leave ? (
+                              <LeaveChip leave={leave} />
+                            ) : cells.length === 0 ? (
                               <span className="m-auto text-xs font-semibold text-slate-400">
                                 OFF
                               </span>
@@ -246,6 +269,18 @@ export function ScheduleWeekGrid({
             </div>
           );
         })}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
+          <span className="font-medium text-slate-700">Nghỉ phép năm</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+          <span className="font-medium text-slate-700">Việc riêng</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+          <span className="font-medium text-slate-700">Nghỉ ốm</span>
+        </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
           <span className="font-medium text-slate-700">OFF</span>

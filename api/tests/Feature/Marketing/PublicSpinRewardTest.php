@@ -267,6 +267,64 @@ class PublicSpinRewardTest extends TestCase
         $this->assertNotNull($row->review_id);
     }
 
+    public function test_existing_active_code_without_reward_rebinds_enabled_gift(): void
+    {
+        $ctx = $this->seedShop();
+
+        $rewards = $this->withToken($ctx['token'])
+            ->getJson('/api/marketing/rewards')
+            ->assertOk()
+            ->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->assertGreaterThanOrEqual(2, count($rewards));
+
+        $this->withToken($ctx['token'])
+            ->postJson('/api/marketing/reviews', [
+                'branch_id' => $ctx['branch_id'],
+                'channel_id' => $ctx['channel_id'],
+                'order_code' => '#08086-443874188',
+                'rating' => 5,
+            ])
+            ->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $first = $this->postJson('/api/public/review-reward/spin', [
+            'org_id' => $ctx['org_id'],
+            'order_code' => '#08086-443874188',
+        ])->assertOk()->json();
+
+        $code = (string) $first['reward']['code'];
+        $row = MarketingRewardCode::withoutGlobalScopes()->where('code', $code)->firstOrFail();
+        $oldRewardId = (int) $row->reward_id;
+
+        $replacement = collect($rewards)->first(
+            fn ($reward) => (int) $reward['id'] !== $oldRewardId
+        );
+        $this->assertNotNull($replacement);
+
+        $this->withToken($ctx['token'])
+            ->deleteJson('/api/marketing/rewards/'.$oldRewardId)
+            ->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])
+            ->putJson('/api/marketing/rewards/'.$replacement['id'], [
+                'enabled' => true,
+            ])
+            ->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $again = $this->postJson('/api/public/review-reward/spin', [
+            'org_id' => $ctx['org_id'],
+            'order_code' => '#08086-443874188',
+        ])->assertOk()->json();
+
+        $this->assertTrue($again['already_issued']);
+        $this->assertSame((string) $replacement['name'], $again['reward']['name']);
+        $this->assertNotSame('Quà tặng', $again['reward']['name']);
+    }
+
     public function test_without_before_review_requires_uploaded_review(): void
     {
         $ctx = $this->seedShop();
