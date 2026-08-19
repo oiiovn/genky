@@ -87,21 +87,22 @@ class MarketingFlashSaleTest extends TestCase
             ],
         ])->assertCreated()->json('data');
 
-        $this->assertSame('running', $created['status']);
+        $this->assertSame('upcoming', $created['status']);
         $this->assertSame('Tân Sơn', $created['branch']);
         $this->assertSame('18/08/2026', $created['date_label']);
         $this->assertStringContainsString('12:00 - 14:00', $created['slots_label']);
-        $this->assertSame(25, $created['progress']);
+        $this->assertSame(11, $created['progress']);
+        $this->assertNull($created['active_product_name']);
         $this->assertSame('upcoming', $created['products'][0]['status']);
         $this->assertSame('12:00 - 14:00', $created['products'][0]['slot_label']);
-        $this->assertSame('Cơm gà', $created['active_product_name']);
 
         $list = $this->withToken($ctx['token'])
-            ->getJson('/api/marketing/flash-sales?status=running')
+            ->getJson('/api/marketing/flash-sales?status=upcoming')
             ->assertOk()
             ->json();
 
-        $this->assertSame(1, $list['stats']['running']);
+        $this->assertSame(0, $list['stats']['running']);
+        $this->assertSame(1, $list['stats']['upcoming']);
         $this->assertSame(1, $list['stats']['total']);
         $this->assertCount(1, $list['data']);
 
@@ -114,7 +115,8 @@ class MarketingFlashSaleTest extends TestCase
             ],
         ])->assertOk()->assertJsonPath('data.title', 'Flash Sale 8.8 Super')
             ->assertJsonPath('data.sold', 300)
-            ->assertJsonPath('data.progress', 75);
+            ->assertJsonPath('data.status', 'running')
+            ->assertJsonPath('data.progress', 11);
 
         $this->assertDatabaseCount('marketing_flash_sale_products', 1);
 
@@ -204,6 +206,8 @@ class MarketingFlashSaleTest extends TestCase
         $this->assertSame('running', $created['products'][0]['status']);
         $this->assertSame('Cơm gà', $created['active_product_name']);
         $this->assertSame('upcoming', $created['products'][1]['status']);
+        $this->assertSame('running', $created['status']);
+        $this->assertSame(44, $created['progress']);
 
         $id = $created['id'];
         $productId = $created['products'][0]['id'];
@@ -213,6 +217,59 @@ class MarketingFlashSaleTest extends TestCase
             ['Accept' => 'application/json'],
         )->assertOk()->json();
         $this->assertNotEmpty($upload['product']['image_url'] ?? null);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_before_slot_is_upcoming_and_progress_follows_clock(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-19 12:22:00', AppTimezone::ZONE));
+        $ctx = $this->seedOwner('owner-fs-live@fresh.test', 'FRESH LIVE', 'Lê Văn Quới');
+
+        $created = $this->withToken($ctx['token'])->postJson('/api/marketing/flash-sales', [
+            'title' => 'Gói Quảng Cáo Flash Sale Hót Q3 2026',
+            'branch_id' => $ctx['branch_id'],
+            'starts_at' => '2026-08-18 00:00:00',
+            'ends_at' => '2026-08-24 23:59:59',
+            'products' => [
+                ['name' => 'Cuốn Lòng Đào', 'slot_start' => '13:00', 'slot_end' => '16:00', 'price' => 9000, 'original_price' => 50953],
+                ['name' => 'SET ĐẦY ĐỦ', 'slot_start' => '20:00', 'slot_end' => '22:00', 'price' => 60500, 'original_price' => 121000],
+            ],
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('upcoming', $created['status']);
+        $this->assertNull($created['active_product_name']);
+        $this->assertSame(22, $created['progress']);
+        $this->assertSame('upcoming', $created['products'][0]['status']);
+
+        $id = $created['id'];
+
+        Carbon::setTestNow(Carbon::parse('2026-08-19 14:30:00', AppTimezone::ZONE));
+        $mid = $this->withToken($ctx['token'])
+            ->getJson('/api/marketing/flash-sales/'.$id)
+            ->assertOk()
+            ->json('data');
+        $this->assertSame('running', $mid['status']);
+        $this->assertSame('Cuốn Lòng Đào', $mid['active_product_name']);
+        $this->assertSame(23, $mid['progress']);
+
+        Carbon::setTestNow(Carbon::parse('2026-08-19 17:00:00', AppTimezone::ZONE));
+        $gap = $this->withToken($ctx['token'])
+            ->getJson('/api/marketing/flash-sales/'.$id)
+            ->assertOk()
+            ->json('data');
+        $this->assertSame('upcoming', $gap['status']);
+        $this->assertNull($gap['active_product_name']);
+        $this->assertSame(24, $gap['progress']);
+
+        Carbon::setTestNow(Carbon::parse('2026-08-19 21:00:00', AppTimezone::ZONE));
+        $night = $this->withToken($ctx['token'])
+            ->getJson('/api/marketing/flash-sales/'.$id)
+            ->assertOk()
+            ->json('data');
+        $this->assertSame('running', $night['status']);
+        $this->assertSame('SET ĐẦY ĐỦ', $night['active_product_name']);
+        $this->assertSame(27, $night['progress']);
 
         Carbon::setTestNow();
     }

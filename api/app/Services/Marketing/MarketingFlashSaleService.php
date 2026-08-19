@@ -34,17 +34,27 @@ class MarketingFlashSaleService
     {
         $now = now(AppTimezone::ZONE);
         $base = $this->filteredQuery($filters, ignoreStatus: true);
-        $stats = $this->statsFromQuery(clone $base, $now);
 
-        $rows = $this->applyStatus($base, $filters['status'] ?? null, $now)
+        $rows = (clone $base)
             ->with(['branch', 'products'])
             ->orderByDesc('starts_at')
             ->orderByDesc('id')
             ->get();
 
+        $payloads = $rows->map(fn (MarketingFlashSale $row) => $this->payload($row, $now));
+        $stats = $this->statsFromPayloads($payloads->all(), $now);
+
+        $wanted = is_string($filters['status'] ?? null) ? $filters['status'] : 'all';
+        $data = $payloads;
+        if ($wanted !== '' && $wanted !== 'all') {
+            $data = $payloads
+                ->filter(fn (array $row) => ($row['status'] ?? '') === $wanted)
+                ->values();
+        }
+
         return [
             'stats' => $stats,
-            'data' => $rows->map(fn (MarketingFlashSale $row) => $this->payload($row, $now))->all(),
+            'data' => $data->all(),
         ];
     }
 
@@ -217,27 +227,13 @@ class MarketingFlashSaleService
     public function payload(MarketingFlashSale $sale, ?Carbon $now = null): array
     {
         $now ??= now(AppTimezone::ZONE);
-        $status = $sale->computedStatus($now);
+        $dateStatus = $sale->computedStatus($now);
         $products = $sale->relationLoaded('products')
             ? $sale->products
             : $sale->products()->get();
 
-        $remainUntil = null;
-        if ($status === MarketingFlashSale::STATUS_RUNNING && $sale->ends_at) {
-            $remainUntil = $sale->ends_at->copy()->timezone(AppTimezone::ZONE);
-        } elseif ($status === MarketingFlashSale::STATUS_UPCOMING && $sale->starts_at) {
-            $remainUntil = $sale->starts_at->copy()->timezone(AppTimezone::ZONE);
-        }
-
-        $remainMs = $remainUntil
-            ? max(0, ($remainUntil->getTimestamp() - $now->getTimestamp()) * 1000)
-            : 0;
-
         $quota = max(0, (int) $sale->quota);
         $sold = max(0, (int) $sale->sold_count);
-        $progress = $quota > 0
-            ? min(100, (int) round($sold / $quota * 100))
-            : ($status === MarketingFlashSale::STATUS_ENDED ? 100 : 0);
 
         $mapped = $products->map(function (MarketingFlashSaleProduct $p) use ($sale, $now) {
             $state = $this->productSlotState($sale, $p, $now);
@@ -264,12 +260,49 @@ class MarketingFlashSaleService
             ];
         })->values()->all();
 
-        $active = collect($mapped)->firstWhere('status', MarketingFlashSale::STATUS_RUNNING)
-            ?? collect($mapped)->firstWhere('status', MarketingFlashSale::STATUS_UPCOMING);
+        $runningProducts = collect($mapped)
+            ->filter(fn (array $p) => ($p['status'] ?? '') === MarketingFlashSale::STATUS_RUNNING)
+            ->values();
+        $upcomingProducts = collect($mapped)
+            ->filter(fn (array $p) => ($p['status'] ?? '') === MarketingFlashSale::STATUS_UPCOMING)
+            ->sortBy(fn (array $p) => (int) ($p['remain_ms'] ?? PHP_INT_MAX))
+            ->values();
+        $hasTimedSlots = collect($mapped)->contains(
+            fn (array $p) => ! empty($p['slot_start']) && ! empty($p['slot_end']),
+        );
 
-        if (is_array($active) && ! empty($active['remain_until'])) {
+        $status = $dateStatus;
+        if ($dateStatus !== MarketingFlashSale::STATUS_ENDED && $hasTimedSlots) {
+            if ($runningProducts->isNotEmpty()) {
+                $status = MarketingFlashSale::STATUS_RUNNING;
+            } elseif ($upcomingProducts->isNotEmpty()) {
+                $status = MarketingFlashSale::STATUS_UPCOMING;
+            } else {
+                $status = MarketingFlashSale::STATUS_ENDED;
+            }
+        }
+
+        $active = $runningProducts->first();
+        $next = $upcomingProducts->first();
+
+        $remainUntil = null;
+        if ($status === MarketingFlashSale::STATUS_RUNNING && is_array($active) && ! empty($active['remain_until'])) {
             $remainUntil = Carbon::parse((string) $active['remain_until']);
-            $remainMs = max(0, ($remainUntil->getTimestamp() - $now->getTimestamp()) * 1000);
+        } elseif ($status === MarketingFlashSale::STATUS_UPCOMING && is_array($next) && ! empty($next['remain_until'])) {
+            $remainUntil = Carbon::parse((string) $next['remain_until']);
+        } elseif ($status === MarketingFlashSale::STATUS_RUNNING && $sale->ends_at) {
+            $remainUntil = $sale->ends_at->copy()->timezone(AppTimezone::ZONE);
+        } elseif ($status === MarketingFlashSale::STATUS_UPCOMING && $sale->starts_at) {
+            $remainUntil = $sale->starts_at->copy()->timezone(AppTimezone::ZONE);
+        }
+
+        $remainMs = $remainUntil
+            ? max(0, ($remainUntil->getTimestamp() - $now->getTimestamp()) * 1000)
+            : 0;
+
+        $progress = $this->rangeProgress($now, $sale->starts_at, $sale->ends_at);
+        if ($sale->ended_at !== null || $dateStatus === MarketingFlashSale::STATUS_ENDED) {
+            $progress = 100;
         }
 
         $slotsFromProducts = array_values(array_unique(array_filter(
@@ -365,24 +398,29 @@ class MarketingFlashSaleService
     }
 
     /**
+     * @param  list<array<string, mixed>>  $payloads
      * @return array<string, mixed>
      */
-    protected function statsFromQuery($query, Carbon $now): array
+    protected function statsFromPayloads(array $payloads, Carbon $now): array
     {
-        $rows = (clone $query)->get(['id', 'starts_at', 'ends_at', 'ended_at', 'created_at']);
         $running = 0;
         $upcoming = 0;
         $ended = 0;
         $upcoming24h = 0;
+        $limit = $now->copy()->addDay();
 
-        foreach ($rows as $row) {
-            $status = $row->computedStatus($now);
+        foreach ($payloads as $row) {
+            $status = (string) ($row['status'] ?? '');
             if ($status === MarketingFlashSale::STATUS_RUNNING) {
                 $running++;
             } elseif ($status === MarketingFlashSale::STATUS_UPCOMING) {
                 $upcoming++;
-                if ($row->starts_at && $row->starts_at->lte($now->copy()->addDay())) {
-                    $upcoming24h++;
+                $until = isset($row['remain_until']) ? (string) $row['remain_until'] : '';
+                if ($until !== '') {
+                    $at = Carbon::parse($until);
+                    if ($at->lte($limit)) {
+                        $upcoming24h++;
+                    }
                 }
             } else {
                 $ended++;
@@ -399,7 +437,7 @@ class MarketingFlashSaleService
             ->count();
 
         return [
-            'total' => $rows->count(),
+            'total' => count($payloads),
             'running' => $running,
             'upcoming' => $upcoming,
             'ended' => $ended,
@@ -687,6 +725,22 @@ class MarketingFlashSaleService
         }
 
         return ['status' => MarketingFlashSale::STATUS_ENDED, 'remain_until' => null];
+    }
+
+    protected function rangeProgress(Carbon $now, ?Carbon $start, ?Carbon $end): int
+    {
+        if (! $start || ! $end) {
+            return 0;
+        }
+
+        $total = $end->getTimestamp() - $start->getTimestamp();
+        if ($total <= 0) {
+            return 0;
+        }
+
+        $elapsed = $now->getTimestamp() - $start->getTimestamp();
+
+        return min(100, max(0, (int) round($elapsed / $total * 100)));
     }
 
     /**

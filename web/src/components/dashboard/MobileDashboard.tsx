@@ -22,6 +22,7 @@ const kpiIcon = {
   working: Briefcase,
   not_checked_in: Clock3,
   late: AlarmClock,
+  absent: CalendarDays,
 };
 
 const kpiTone = {
@@ -68,7 +69,7 @@ export function MobileDashboard({
   data: DashboardData;
   onChanged: () => void;
 }) {
-  const kpis = data.kpis.filter((k) => k.key !== "absent");
+  const kpis = data.kpis;
   const nextShift = data.upcoming_shifts[0] ?? null;
   const maxAbs = Math.max(
     ...data.salary_projection.breakdown.map((b) => Math.abs(b.value)),

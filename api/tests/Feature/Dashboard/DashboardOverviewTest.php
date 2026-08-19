@@ -320,4 +320,93 @@ class DashboardOverviewTest extends TestCase
         $todayPoint = collect($costs['days'])->firstWhere('day', (int) $now->format('j'));
         $this->assertGreaterThan(0, $todayPoint['value']);
     }
+
+    public function test_kpis_count_leave_late_and_missing_check_in(): void
+    {
+        $ctx = $this->seedOwnerWithBranch();
+        $today = now('Asia/Ho_Chi_Minh')->toDateString();
+
+        $onLeave = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Nguyễn Nhi',
+            'email' => 'nhi-kpi@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $onTime = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Bảo Châu',
+            'email' => 'chau-kpi@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $missing = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Lê Oanh',
+            'email' => 'oanh-kpi@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $late = $this->withToken($ctx['token'])->postJson('/api/employees', [
+            'full_name' => 'Diễm Vân',
+            'email' => 'van-kpi@fresh.test',
+            'branch_ids' => [$ctx['branch_id']],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/leaves', [
+            'employee_id' => $onLeave['id'],
+            'type' => 'personal',
+            'from' => $today,
+            'to' => $today,
+            'reason' => 'Việc riêng',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $shift = $this->withToken($ctx['token'])->postJson('/api/shifts', [
+            'name' => 'Full ca',
+            'code' => 'FULL',
+            'start_time' => '11:30',
+            'end_time' => '22:00',
+            'break_time' => 0,
+            'color' => '#22C55E',
+            'branch_id' => $ctx['branch_id'],
+        ])->assertCreated()->json('data');
+        $this->app['auth']->forgetGuards();
+
+        foreach ([$onTime['id'], $missing['id'], $late['id']] as $employeeId) {
+            $this->withToken($ctx['token'])->postJson('/api/shift-assignments', [
+                'employee_id' => $employeeId,
+                'shift_id' => $shift['id'],
+                'branch_id' => $ctx['branch_id'],
+                'date' => $today,
+            ])->assertCreated();
+            $this->app['auth']->forgetGuards();
+        }
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $onTime['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $today,
+            'check_in_time' => '11:13',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $this->withToken($ctx['token'])->postJson('/api/attendances/check-in', [
+            'employee_id' => $late['id'],
+            'branch_id' => $ctx['branch_id'],
+            'work_date' => $today,
+            'check_in_time' => '11:45',
+        ])->assertCreated();
+        $this->app['auth']->forgetGuards();
+
+        $kpis = collect(
+            $this->withToken($ctx['token'])->getJson('/api/dashboard')->assertOk()->json('kpis')
+        )->keyBy('key');
+
+        $this->assertSame(2, $kpis['working']['value']);
+        $this->assertSame(1, $kpis['not_checked_in']['value']);
+        $this->assertSame(1, $kpis['late']['value']);
+        $this->assertSame(1, $kpis['absent']['value']);
+    }
 }

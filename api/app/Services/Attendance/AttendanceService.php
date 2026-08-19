@@ -84,7 +84,9 @@ class AttendanceService
                 fn ($r) => in_array($r['check_in_tone'] ?? '', ['early', 'ontime'], true)
             )->count(),
             'late' => $rows->filter(fn ($r) => ($r['check_in_tone'] ?? '') === 'late')->count(),
-            'absent' => $rows->filter(fn ($r) => ($r['ui_status'] ?? '') === 'absent')->count(),
+            'absent' => $rows->filter(
+                fn ($r) => in_array($r['ui_status'] ?? '', ['absent', 'on_leave'], true)
+            )->count(),
             'overtime' => $rows->filter(fn ($r) => ($r['check_out_tone'] ?? '') === 'late')->count(),
         ];
     }
@@ -980,9 +982,20 @@ class AttendanceService
             ->orderBy('employee_id')
             ->get();
 
+        $loggedIds = $logs->pluck('employee_id')->unique()->all();
+        $assignedOnly = ShiftAssignment::query()
+            ->with(['shift', 'employee.position', 'employee.branches'])
+            ->whereIn('employee_id', $employeeIds)
+            ->whereDate('date', $date)
+            ->where('status', ShiftAssignment::STATUS_ASSIGNED)
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+            ->when($loggedIds !== [], fn ($q) => $q->whereNotIn('employee_id', $loggedIds))
+            ->get()
+            ->unique('employee_id');
+
         $assignedShifts = $this->assignedShiftsForLogs($logs);
 
-        return $this->rosterMemo[$key] = $logs->map(function (AttendanceLog $log) use ($date, $branchId, $assignedShifts) {
+        $fromLogs = $logs->map(function (AttendanceLog $log) use ($date, $branchId, $assignedShifts) {
             return $this->buildRowPayload(
                 $log->employee,
                 $log,
@@ -990,7 +1003,23 @@ class AttendanceService
                 $date,
                 $branchId
             );
-        })->values();
+        });
+
+        $fromAssigned = $assignedOnly->map(function (ShiftAssignment $assignment) use ($date, $branchId) {
+            if (! $assignment->employee) {
+                return null;
+            }
+
+            return $this->buildRowPayload(
+                $assignment->employee,
+                null,
+                $assignment->shift,
+                $date,
+                $branchId
+            );
+        })->filter();
+
+        return $this->rosterMemo[$key] = $fromLogs->concat($fromAssigned)->values();
     }
 
     /**

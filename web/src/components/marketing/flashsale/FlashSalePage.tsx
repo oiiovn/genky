@@ -86,7 +86,7 @@ function statusMeta(status: FlashSaleStatus) {
   }
   if (status === "upcoming") {
     return {
-      label: "SẮP DIỄN RA",
+      label: "SẮP CHẠY",
       className: "bg-sky-50 text-sky-600 ring-sky-100",
     };
   }
@@ -200,70 +200,234 @@ function hcmNowSec(now: number): number {
   return Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second);
 }
 
-/** Đếm ngược tới hết khung giờ đang chạy thật (vd 13:00–16:00 lúc 13h → 2:59:59). */
-function liveSlotRemain(
+type SlotPhase = {
+  running: boolean;
+  upcoming: boolean;
+  remainMs: number;
+  progress: number;
+};
+
+function slotPhase(
   slotStart: string | null,
   slotEnd: string | null,
   now: number,
-  campaignStatus: FlashSaleStatus,
   campaignEndsAt: string | null,
-): { running: boolean; remainMs: number } {
-  if (campaignStatus !== "running") {
-    return { running: false, remainMs: 0 };
-  }
+): SlotPhase {
+  const empty: SlotPhase = {
+    running: false,
+    upcoming: false,
+    remainMs: 0,
+    progress: 0,
+  };
   const startSec = hmToSec(slotStart);
   const endSec = hmToSec(slotEnd);
-  if (startSec == null || endSec == null) {
-    return { running: false, remainMs: 0 };
-  }
+  if (startSec == null || endSec == null) return empty;
 
   const nowSec = hcmNowSec(now);
+  let durationSec = 0;
+  let elapsedSec = 0;
   let remainSec = 0;
   let running = false;
+  let upcoming = false;
 
   if (endSec > startSec) {
+    durationSec = endSec - startSec;
     running = nowSec >= startSec && nowSec < endSec;
-    remainSec = endSec - nowSec;
+    upcoming = nowSec < startSec;
+    elapsedSec = nowSec - startSec;
+    remainSec = running ? endSec - nowSec : startSec - nowSec;
   } else {
+    durationSec = endSec + 86400 - startSec;
     running = nowSec >= startSec || nowSec < endSec;
-    remainSec = nowSec >= startSec ? endSec + 86400 - nowSec : endSec - nowSec;
+    upcoming = nowSec < startSec && nowSec >= endSec;
+    if (nowSec >= startSec) {
+      elapsedSec = nowSec - startSec;
+      remainSec = endSec + 86400 - nowSec;
+    } else {
+      elapsedSec = nowSec + 86400 - startSec;
+      remainSec = running ? endSec - nowSec : startSec - nowSec;
+    }
   }
 
-  if (!running) return { running: false, remainMs: 0 };
+  if (campaignEndsAt) {
+    const untilEnd = new Date(campaignEndsAt).getTime() - now;
+    if (!Number.isNaN(untilEnd) && untilEnd <= 0) {
+      return empty;
+    }
+    if (running && !Number.isNaN(untilEnd)) {
+      remainSec = Math.min(remainSec, Math.max(0, untilEnd / 1000));
+    }
+  }
 
+  if (running && remainSec > 0 && durationSec > 0) {
+    const progress = Math.min(100, Math.max(0, (elapsedSec / durationSec) * 100));
+    return { running: true, upcoming: false, remainMs: remainSec * 1000, progress };
+  }
+  if (upcoming && remainSec > 0) {
+    return { running: false, upcoming: true, remainMs: remainSec * 1000, progress: 0 };
+  }
+  return empty;
+}
+
+function campaignWindow(campaign: FlashSaleCampaign, now: number): "before" | "inside" | "after" {
+  if (campaign.status === "ended") return "after";
+  const start = campaign.starts_at ? new Date(campaign.starts_at).getTime() : NaN;
+  const end = campaign.ends_at ? new Date(campaign.ends_at).getTime() : NaN;
+  if (!Number.isNaN(start) && now < start) return "before";
+  if (!Number.isNaN(end) && now > end) return "after";
+  return "inside";
+}
+
+function liveCampaignView(campaign: FlashSaleCampaign, now: number) {
+  const window = campaignWindow(campaign, now);
+  const dateProgress = rangeProgress(campaign.starts_at, campaign.ends_at, now);
+
+  if (window === "after") {
+    return {
+      status: "ended" as FlashSaleStatus,
+      activeName: null as string | null,
+      nextName: null as string | null,
+      progress: 100,
+      remainMs: 0,
+      inCampaign: false,
+    };
+  }
+
+  const timed = campaign.products.filter((p) => p.slot_start && p.slot_end);
+  if (window === "inside" && timed.length > 0) {
+    const phases = timed.map((p) => ({
+      product: p,
+      phase: slotPhase(p.slot_start, p.slot_end, now, campaign.ends_at),
+    }));
+    const running = phases.find((p) => p.phase.running);
+    if (running) {
+      return {
+        status: "running" as FlashSaleStatus,
+        activeName: running.product.name,
+        nextName: null,
+        progress: dateProgress,
+        remainMs: running.phase.remainMs,
+        inCampaign: true,
+      };
+    }
+    const next = phases
+      .filter((p) => p.phase.upcoming)
+      .sort((a, b) => a.phase.remainMs - b.phase.remainMs)[0];
+    if (next) {
+      return {
+        status: "upcoming" as FlashSaleStatus,
+        activeName: null,
+        nextName: next.product.name,
+        progress: dateProgress,
+        remainMs: next.phase.remainMs,
+        inCampaign: true,
+      };
+    }
+    const nextDay = nextDayRemainMs(timed, now, campaign.ends_at);
+    if (nextDay > 0) {
+      const earliest = [...timed].sort(
+        (a, b) => (hmToSec(a.slot_start) ?? 0) - (hmToSec(b.slot_start) ?? 0),
+      )[0];
+      return {
+        status: "upcoming" as FlashSaleStatus,
+        activeName: null,
+        nextName: earliest?.name ?? null,
+        progress: dateProgress,
+        remainMs: nextDay,
+        inCampaign: true,
+      };
+    }
+    return {
+      status: "ended" as FlashSaleStatus,
+      activeName: null,
+      nextName: null,
+      progress: 100,
+      remainMs: 0,
+      inCampaign: false,
+    };
+  }
+
+  if (window === "before") {
+    return {
+      status: "upcoming" as FlashSaleStatus,
+      activeName: null,
+      nextName: timed[0]?.name ?? null,
+      progress: 0,
+      remainMs: remainMsOf(campaign.starts_at, now),
+      inCampaign: false,
+    };
+  }
+
+  return {
+    status: "running" as FlashSaleStatus,
+    activeName: null,
+    nextName: null,
+    progress: dateProgress,
+    remainMs: remainMsOf(campaign.ends_at, now),
+    inCampaign: true,
+  };
+}
+
+function nextDayRemainMs(
+  products: FlashSaleCampaign["products"],
+  now: number,
+  campaignEndsAt: string | null,
+): number {
+  const starts = products
+    .map((p) => hmToSec(p.slot_start))
+    .filter((n): n is number => n != null);
+  if (starts.length === 0) return 0;
+  const earliest = Math.min(...starts);
+  const nowSec = hcmNowSec(now);
+  const remainSec = 86400 - nowSec + earliest;
   let remainMs = remainSec * 1000;
   if (campaignEndsAt) {
     const untilEnd = new Date(campaignEndsAt).getTime() - now;
-    if (!Number.isNaN(untilEnd)) remainMs = Math.min(remainMs, Math.max(0, untilEnd));
+    if (!Number.isNaN(untilEnd) && untilEnd < remainMs) return 0;
   }
-  return { running: remainMs > 0, remainMs };
+  return remainMs;
+}
+
+function rangeProgress(startAt: string | null, endAt: string | null, now: number): number {
+  if (!startAt || !endAt) return 0;
+  const start = new Date(startAt).getTime();
+  const end = new Date(endAt).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return 0;
+  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
 }
 
 function CampaignMetrics({
   campaign,
-  remainMs,
+  now,
 }: {
   campaign: FlashSaleCampaign;
-  remainMs: number;
+  now: number;
 }) {
-  const parts = splitRemain(remainMs);
+  const live = liveCampaignView(campaign, now);
+  const parts = splitRemain(live.remainMs);
 
-  if (campaign.status === "running") {
+  if (live.inCampaign) {
     return (
       <div className="w-[220px] shrink-0">
-        {campaign.active_product_name ? (
+        {live.status === "running" && live.activeName ? (
           <p className="text-right text-xs font-semibold text-emerald-600">
-            Đang sale: {campaign.active_product_name}
+            Đang sale: {live.activeName}
           </p>
-        ) : (
+        ) : live.nextName ? (
+          <p className="text-right text-xs font-semibold text-sky-600">
+            Sắp chạy: {live.nextName}
+          </p>
+        ) : live.status === "running" ? (
           <p className="text-right text-xs font-semibold text-amber-600">
             Ngoài khung giờ món
           </p>
+        ) : (
+          <p className="text-right text-xs font-semibold text-sky-600">Sắp chạy</p>
         )}
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-emerald-500"
-            style={{ width: `${campaign.progress}%` }}
+            className="h-full rounded-full bg-emerald-500 transition-[width] duration-1000 ease-linear"
+            style={{ width: `${live.progress}%` }}
           />
         </div>
         <div className="mt-3 space-y-1 text-sm">
@@ -282,7 +446,7 @@ function CampaignMetrics({
     );
   }
 
-  if (campaign.status === "upcoming") {
+  if (live.status === "upcoming") {
     return (
       <div className="flex w-[240px] shrink-0 flex-col items-center">
         <p className="mb-2 text-[11px] font-semibold tracking-wide text-sky-500 uppercase">
@@ -330,13 +494,10 @@ function ProductThumbs({
   return (
     <div className="flex shrink-0 flex-nowrap items-stretch gap-2">
       {campaign.products.map((p) => {
-        const live = liveSlotRemain(
-          p.slot_start,
-          p.slot_end,
-          now,
-          campaign.status,
-          campaign.ends_at,
-        );
+        const inWindow = campaignWindow(campaign, now) === "inside";
+        const live = inWindow
+          ? slotPhase(p.slot_start, p.slot_end, now, campaign.ends_at)
+          : { running: false, upcoming: false, remainMs: 0, progress: 0 };
         return (
           <div
             key={`${campaign.id}-${p.id ?? p.name}`}
@@ -465,7 +626,8 @@ function CampaignCard({
   onEnd: () => void;
   onDelete: () => void;
 }) {
-  const meta = statusMeta(campaign.status);
+  const live = liveCampaignView(campaign, now);
+  const meta = statusMeta(live.status);
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-4 overflow-x-auto">
@@ -497,10 +659,7 @@ function CampaignCard({
           </p>
         </div>
 
-        <CampaignMetrics
-          campaign={campaign}
-          remainMs={remainMsOf(campaign.remain_until, now)}
-        />
+        <CampaignMetrics campaign={campaign} now={now} />
         <ProductThumbs campaign={campaign} now={now} />
         <CampaignMenu
           campaign={campaign}
