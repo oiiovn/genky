@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useAdminChrome } from "@/components/admin/AdminShell";
 import { FlashSaleFormModal } from "@/components/marketing/flashsale/FlashSaleFormModal";
+import { FlashSaleCalendar } from "@/components/marketing/flashsale/FlashSaleCalendar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   deleteFlashSale,
@@ -687,6 +688,8 @@ export function FlashSalePage() {
   const [toast, setToast] = useState<string | null>(null);
 
   const [rows, setRows] = useState<FlashSaleCampaign[]>([]);
+  const [calendarRows, setCalendarRows] = useState<FlashSaleCampaign[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(true);
   const [stats, setStats] = useState<FlashSaleStats>(emptyFlashSaleStats);
   const [history, setHistory] = useState<FlashSaleCampaign[]>([]);
   const [loading, setLoading] = useState(true);
@@ -704,6 +707,23 @@ export function FlashSalePage() {
     const t = window.setTimeout(() => setQDebounced(q), 280);
     return () => window.clearTimeout(t);
   }, [q]);
+
+  const loadCalendar = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetchFlashSales(
+        {
+          status: "all",
+          branch_id: branchId,
+        },
+        signal,
+      );
+      if (!signal?.aborted) setCalendarRows(res.data);
+    } catch {
+      if (!signal?.aborted) setCalendarRows([]);
+    } finally {
+      if (!signal?.aborted) setCalendarLoading(false);
+    }
+  }, [branchId]);
 
   const loadList = useCallback(async (signal?: AbortSignal) => {
     setError(null);
@@ -734,6 +754,14 @@ export function FlashSalePage() {
     void loadList(ac.signal);
     return () => ac.abort();
   }, [view, loadList]);
+
+  useEffect(() => {
+    if (view !== "list") return;
+    const ac = new AbortController();
+    setCalendarLoading(true);
+    void loadCalendar(ac.signal);
+    return () => ac.abort();
+  }, [view, loadCalendar]);
 
   useEffect(() => {
     if (view !== "history") return;
@@ -962,6 +990,12 @@ export function FlashSalePage() {
               })}
             </div>
 
+            <FlashSaleCalendar
+              campaigns={calendarRows}
+              branchId={branchId}
+              loading={calendarLoading}
+            />
+
             <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap gap-2">
@@ -1096,6 +1130,7 @@ export function FlashSalePage() {
         onSaved={(message) => {
           showToast(message);
           void loadList();
+          void loadCalendar();
         }}
       />
 
@@ -1118,6 +1153,7 @@ export function FlashSalePage() {
               showToast(res.message);
               setPendingEnd(null);
               void loadList();
+              void loadCalendar();
             })
             .catch((err: unknown) => {
               showToast(err instanceof Error ? err.message : "Không kết thúc được.");
@@ -1145,6 +1181,7 @@ export function FlashSalePage() {
               showToast(message);
               setPendingDelete(null);
               void loadList();
+              void loadCalendar();
             })
             .catch((err: unknown) => {
               showToast(err instanceof Error ? err.message : "Không xoá được.");

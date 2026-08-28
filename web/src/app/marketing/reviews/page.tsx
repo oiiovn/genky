@@ -15,6 +15,7 @@ import {
 } from "@/lib/review-boost-storage";
 import type { ReviewBoostOverviewData } from "@/lib/review-boost-types";
 import { AddMarketingReviewModal } from "@/components/marketing/AddMarketingReviewModal";
+import { MobileMarketingReviews } from "@/components/marketing/MobileMarketingReviews";
 import { ReviewBoostSettingsPanel } from "@/components/marketing/ReviewBoostSettingsPanel";
 import {
   ReviewBoostHistoryPanel,
@@ -192,148 +193,168 @@ function MarketingReviewsPage() {
     { id: "settings", label: "Cài đặt" },
   ];
 
+  function showToast(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 2400);
+  }
+
   return (
-    <main className="flex-1 overflow-y-auto bg-slate-50/80 p-5 lg:p-6">
-      <div className="mx-auto max-w-[1400px] space-y-5">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">
-            Gia tăng đánh giá
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Tăng đánh giá 5★ và biến khách hàng thành khách quay lại.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1 border-b border-slate-200">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={clsx(
-                "relative -mb-px inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium transition",
-                tab === t.id
-                  ? "border-b-2 border-blue-600 text-blue-600"
-                  : "text-slate-500 hover:text-slate-800",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-              <span className="text-slate-400">Chi nhánh</span>
-              <select
-                value={branchId === "" ? "" : String(branchId)}
-                onChange={(e) =>
-                  setBranchId(e.target.value ? Number(e.target.value) : "")
-                }
-                className="bg-transparent font-medium text-slate-800 outline-none"
-              >
-                <option value="">Tất cả</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-              <span className="text-slate-400">Từ</span>
-              <input
-                type="date"
-                value={range.from}
-                onChange={(e) =>
-                  setRange(withRange(e.target.value || range.from, range.to))
-                }
-                className="bg-transparent font-medium text-slate-800 outline-none"
-              />
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-              <span className="text-slate-400">Đến</span>
-              <input
-                type="date"
-                value={range.to}
-                onChange={(e) =>
-                  setRange(withRange(range.from, e.target.value || range.to))
-                }
-                className="bg-transparent font-medium text-slate-800 outline-none"
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-            Thêm đánh giá
-          </button>
-        </div>
-
-        {tab === "overview" && overviewError ? (
-          <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-            {overviewError}
-          </p>
-        ) : null}
-
-        {tab === "overview" ? (
-          overviewLoading && !liveOverview ? (
-            <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="h-28 animate-pulse rounded-2xl bg-slate-100"
-                  />
-                ))}
-              </div>
-              <div className="h-72 animate-pulse rounded-2xl bg-slate-100" />
-            </div>
-          ) : (
-            <ReviewBoostOverview
-              data={overview}
-              qrValue={qrValue}
-            />
-          )
-        ) : null}
-        {tab === "reviews" ? (
-          <ReviewBoostReviewsPanel
-            branches={branches}
-            branchId={branchId}
-            refreshTick={overviewTick}
-            onChanged={() => setOverviewTick((n) => n + 1)}
-            onToast={(message) => {
-              setToast(message);
-              window.setTimeout(() => setToast(null), 2400);
-            }}
-          />
-        ) : null}
-        {tab === "history" ? (
-          <ReviewBoostHistoryPanel
-            branches={branches}
-            branchId={branchId}
-            from={range.from}
-            to={range.to}
-            refreshTick={overviewTick}
-            onToast={(message) => {
-              setToast(message);
-              window.setTimeout(() => setToast(null), 2400);
-            }}
-          />
-        ) : null}
-        {tab === "settings" ? (
-          <ReviewBoostSettingsPanel
-            orgId={orgId}
-            branches={branches}
-            branchId={branchId}
-            onSaved={setSavedUrl}
-          />
-        ) : null}
+    <>
+      <div className="lg:hidden">
+        <MobileMarketingReviews
+          orgId={orgId}
+          tab={tab}
+          branches={branches}
+          branchId={branchId}
+          range={{ from: range.from, to: range.to }}
+          overview={overview}
+          overviewLoading={overviewLoading && !liveOverview}
+          overviewError={overviewError}
+          qrValue={qrValue}
+          refreshTick={overviewTick}
+          onTabChange={setTab}
+          onBranchChange={setBranchId}
+          onRangeChange={({ from, to }) => setRange(withRange(from, to))}
+          onAdd={() => setAddOpen(true)}
+          onOverviewChanged={() => setOverviewTick((n) => n + 1)}
+          onToast={showToast}
+          onSavedUrl={setSavedUrl}
+        />
       </div>
+
+      <main className="hidden flex-1 overflow-y-auto bg-slate-50/80 p-5 lg:block lg:p-6">
+        <div className="mx-auto max-w-[1400px] space-y-5">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">
+              Gia tăng đánh giá
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Tăng đánh giá 5★ và biến khách hàng thành khách quay lại.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1 border-b border-slate-200">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={clsx(
+                  "relative -mb-px inline-flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium transition",
+                  tab === t.id
+                    ? "border-b-2 border-blue-600 text-blue-600"
+                    : "text-slate-500 hover:text-slate-800",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                <span className="text-slate-400">Chi nhánh</span>
+                <select
+                  value={branchId === "" ? "" : String(branchId)}
+                  onChange={(e) =>
+                    setBranchId(e.target.value ? Number(e.target.value) : "")
+                  }
+                  className="bg-transparent font-medium text-slate-800 outline-none"
+                >
+                  <option value="">Tất cả</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                <span className="text-slate-400">Từ</span>
+                <input
+                  type="date"
+                  value={range.from}
+                  onChange={(e) =>
+                    setRange(withRange(e.target.value || range.from, range.to))
+                  }
+                  className="bg-transparent font-medium text-slate-800 outline-none"
+                />
+              </label>
+              <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                <span className="text-slate-400">Đến</span>
+                <input
+                  type="date"
+                  value={range.to}
+                  onChange={(e) =>
+                    setRange(withRange(range.from, e.target.value || range.to))
+                  }
+                  className="bg-transparent font-medium text-slate-800 outline-none"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4" />
+              Thêm đánh giá
+            </button>
+          </div>
+
+          {tab === "overview" && overviewError ? (
+            <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              {overviewError}
+            </p>
+          ) : null}
+
+          {tab === "overview" ? (
+            overviewLoading && !liveOverview ? (
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-28 animate-pulse rounded-2xl bg-slate-100"
+                    />
+                  ))}
+                </div>
+                <div className="h-72 animate-pulse rounded-2xl bg-slate-100" />
+              </div>
+            ) : (
+              <ReviewBoostOverview data={overview} qrValue={qrValue} />
+            )
+          ) : null}
+          {tab === "reviews" ? (
+            <ReviewBoostReviewsPanel
+              branches={branches}
+              branchId={branchId}
+              refreshTick={overviewTick}
+              onChanged={() => setOverviewTick((n) => n + 1)}
+              onToast={showToast}
+            />
+          ) : null}
+          {tab === "history" ? (
+            <ReviewBoostHistoryPanel
+              branches={branches}
+              branchId={branchId}
+              from={range.from}
+              to={range.to}
+              refreshTick={overviewTick}
+              onToast={showToast}
+            />
+          ) : null}
+          {tab === "settings" ? (
+            <ReviewBoostSettingsPanel
+              orgId={orgId}
+              branches={branches}
+              branchId={branchId}
+              onSaved={setSavedUrl}
+            />
+          ) : null}
+        </div>
+      </main>
 
       <AddMarketingReviewModal
         open={addOpen}
@@ -342,8 +363,7 @@ function MarketingReviewsPage() {
         onClose={() => setAddOpen(false)}
         onCreated={(summary) => {
           setOverviewTick((n) => n + 1);
-          setToast(summary.message || "Đã lưu đánh giá.");
-          window.setTimeout(() => setToast(null), 2400);
+          showToast(summary.message || "Đã lưu đánh giá.");
         }}
       />
 
@@ -352,6 +372,6 @@ function MarketingReviewsPage() {
           {toast}
         </div>
       ) : null}
-    </main>
+    </>
   );
 }
